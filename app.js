@@ -543,6 +543,72 @@ function initPhoneMode(roomCode) {
   if(typeof window.Peer!=='function') {status.textContent='Biblioteca de conexão não carregou. Verifique a internet e recarregue.';return;}
   const phonePeer=new window.Peer(undefined,{debug:0});
   let connection=null;let stopFn=null;
+  const speechCtor=window.SpeechRecognition || window.webkitSpeechRecognition;
+  const lyricsConsent=$('lyricsConsent');
+  const speechButton=$('startLyricsRecognitionBtn');
+  const speechLang=$('lyricsLanguage');
+  let recognition=null, speechRequested=false, speechRestart=null, lastSpeechSent='';
+  function speechStatus(message){setText('phoneLyricsStatus',message);}
+  function refreshSpeechButton() {
+    speechButton.disabled=!stopFn || !lyricsConsent.checked || !speechCtor;
+    speechButton.textContent=speechRequested?'■ Parar reconhecimento':'🗣 Ativar comparação de letra';
+    if(!speechCtor)speechStatus('Reconhecimento de fala indisponível neste navegador. A nota vocal continua normalmente.');
+  }
+  function stopSpeech() {
+    speechRequested=false;clearTimeout(speechRestart);speechRestart=null;
+    if(recognition){const old=recognition;recognition=null;try{old.abort();}catch{}}
+    speechStatus('Reconhecimento pausado. A nota vocal continua ativa.');
+    refreshSpeechButton();
+  }
+  function startSpeech() {
+    if(!speechCtor||!stopFn||!lyricsConsent.checked) {
+      speechStatus('Ative primeiro o microfone e autorize o reconhecimento.');
+      return;
+    }
+    if(!speechRequested)lastSpeechSent='';
+    speechRequested=true;
+    refreshSpeechButton();
+    try {
+      if(recognition){try{recognition.abort();}catch{}}
+      const instance=new speechCtor();recognition=instance;
+      instance.lang=speechLang.value;
+      instance.continuous=true;instance.interimResults=false;instance.maxAlternatives=1;
+      instance.onresult=event=>{
+        if(!speechRequested||recognition!==instance||!lyricsConsent.checked)return;
+        for(let i=event.resultIndex;i<event.results.length;i++){
+          const res=event.results[i];if(!res?.isFinal)continue;
+          const phrase=String(res[0]?.transcript||'').trim().slice(0,450);
+          if(!phrase||phrase===lastSpeechSent)continue;
+          lastSpeechSent=phrase;
+          if(connection?.open){try{connection.send({type:'lyrics-phrase',phrase});}catch{}}
+          speechStatus('📝 Reconhecido: '+phrase.slice(0,90));
+        }
+      };
+      instance.onerror=event=>{
+        const code=event?.error||'indisponível';
+        if(['not-allowed','service-not-allowed','audio-capture','language-not-supported'].includes(code)){
+          stopSpeech();
+          speechStatus('Permissão ou recurso indisponível ('+code+'). A nota vocal continua ativa.');
+        }else speechStatus('Reconhecimento temporariamente indisponível: '+code);
+      };
+      instance.onend=()=>{
+        if(recognition!==instance)return;
+        recognition=null;
+        if(speechRequested&&stopFn&&lyricsConsent.checked&&document.visibilityState==='visible')
+          speechRestart=setTimeout(()=>{if(speechRequested)startSpeech();},1200);
+      };
+      instance.start();
+      speechStatus('🎙 Reconhecendo palavras. O navegador pode processar o áudio em serviço externo.');
+    }catch(e){
+      speechRequested=false;
+      speechStatus('Não foi possível reconhecer o canto: '+(e?.message||'recurso indisponível'));
+      refreshSpeechButton();
+    }
+  }
+  lyricsConsent.addEventListener('change',()=>{if(!lyricsConsent.checked)stopSpeech();refreshSpeechButton();});
+  speechButton.addEventListener('click',()=>speechRequested?stopSpeech():startSpeech());
+  speechLang.addEventListener('change',()=>{if(speechRequested){stopSpeech();startSpeech();}});
+  refreshSpeechButton();
   function showPhoneScore(raw) {
     const data = validateScoreSnapshot(raw);
     if (!data) return;
@@ -555,7 +621,7 @@ function initPhoneMode(roomCode) {
     setText('phoneScoreNum',data.points === null ? '--' : String(data.points));
     $('phoneScoreFill').style.width=(data.points ?? 0)+'%';
     $('phoneScorePanel').classList.toggle('phone-score-finished',data.phase==='finished');
-    const melodyExtra=Number.isInteger(data.melodyPoints) ? ' · Afinação '+data.melodyPoints+'/100' : '';
+    const melodyExtra=Number.isInteger(data.lyricsPoints) ? ' · Letra '+data.lyricsPoints+'/100' : '';
     setText('phoneScoreInfo',
       data.phase==='finished'
         ? (data.points === null ? 'Sem avaliação: não foi detectado canto suficiente.' : 'Nota final do palco'+melodyExtra)
@@ -579,7 +645,7 @@ function initPhoneMode(roomCode) {
     // O microfone continua por um intervalo breve, sem exigir nova permissão.
     if(stopFn && !disconnectTimer)disconnectTimer=setTimeout(()=>{
       if(!connection?.open && stopFn){
-        stopFn();stopFn=null;void keepAwake.stop();
+        stopSpeech();stopFn();stopFn=null;void keepAwake.stop();
         startBtn.textContent='Ativar microfone';
       }
       disconnectTimer=null;
@@ -615,7 +681,7 @@ function initPhoneMode(roomCode) {
     }
   });
   startBtn.addEventListener('click',async()=>{
-    if(stopFn){stopFn();stopFn=null;void keepAwake.stop();if(connection?.open)connection.send({type:'mic-status',active:false});startBtn.textContent='Ativar microfone';setText('phoneMeterText','Microfone pausado');return;}
+    if(stopFn){stopSpeech();stopFn();stopFn=null;void keepAwake.stop();if(connection?.open)connection.send({type:'mic-status',active:false});startBtn.textContent='Ativar microfone';setText('phoneMeterText','Microfone pausado');return;}
     startBtn.disabled=true;
     // Inicie a requisição dentro do clique, antes do prompt assíncrono do microfone.
     // Assim Safari e Chrome podem conceder o bloqueio na mesma interação.
@@ -630,10 +696,12 @@ function initPhoneMode(roomCode) {
       });
       if(connection?.open)connection.send({type:'mic-status',active:true});
       startBtn.textContent='Pausar microfone';
+      refreshSpeechButton();
     } catch(e){void keepAwake.stop();status.classList.remove('good');status.textContent='Não foi possível abrir o microfone: '+e.message;}
+    refreshSpeechButton();
     finally {startBtn.disabled=false;}
   });
-  window.addEventListener('pagehide',()=>{pageClosed=true;clearTimeout(reconnectTimer);clearTimeout(disconnectTimer);if(stopFn)stopFn();stopFn=null;void keepAwake.stop();document.removeEventListener('visibilitychange',handleVisibility);phonePeer.destroy();});
+  window.addEventListener('pagehide',()=>{pageClosed=true;stopSpeech();clearTimeout(reconnectTimer);clearTimeout(disconnectTimer);if(stopFn)stopFn();stopFn=null;void keepAwake.stop();document.removeEventListener('visibilitychange',handleVisibility);phonePeer.destroy();});
 }
 function initDesktop() {
   // Chaves legadas do YouTube não precisam ficar salvas no navegador.
