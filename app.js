@@ -599,22 +599,52 @@ function initPhoneMode(roomCode) {
     $('phoneScoreFill').style.width='0%';
     $('phoneScorePanel').classList.remove('phone-score-finished');
   }
-  phonePeer.on('open',()=>{
-    status.textContent='Conectando ao MacBook…';
-    connection=phonePeer.connect('kmundo-'+roomCode,{reliable:false});
-    connection.on('open',()=>{status.textContent='✓ Conectado ao MacBook';status.classList.add('good');startBtn.disabled=false;setText('phoneScoreState','Sincronizando…');});
-    connection.on('data',data=>showPhoneScore(data));
-    connection.on('close',()=>{
-      status.classList.remove('good');status.textContent='Conexão encerrada. Reabra o link no celular.';
-      startBtn.disabled=true;
-      clearPhoneScore();
-      if(stopFn){stopFn();stopFn=null;}
-      void keepAwake.stop();
-      startBtn.textContent='Ativar microfone';
+  let reconnectTimer=null;
+  let disconnectTimer=null;
+  let pageClosed=false;
+  function scheduleReconnect() {
+    if(pageClosed||connection?.open||reconnectTimer)return;
+    status.classList.remove('good');
+    status.textContent='Reconectando ao palco automaticamente…';
+    clearPhoneScore('Aguardando o computador voltar. Não precisa escanear o QR.');
+    // O microfone continua por um intervalo breve, sem exigir nova permissão.
+    if(stopFn && !disconnectTimer)disconnectTimer=setTimeout(()=>{
+      if(!connection?.open && stopFn){
+        stopFn();stopFn=null;void keepAwake.stop();
+        startBtn.textContent='Ativar microfone';
+      }
+      disconnectTimer=null;
+    },30000);
+    reconnectTimer=setTimeout(()=>{reconnectTimer=null;connectToDesktop();},3500);
+  }
+  function connectToDesktop() {
+    if(pageClosed||!phonePeer.open||connection?.open)return;
+    if(connection){try{connection.close();}catch{}connection=null;}
+    const candidate=phonePeer.connect('kmundo-'+roomCode,{reliable:false});
+    connection=candidate;
+    candidate.on('open',()=>{
+      if(connection!==candidate)return;
+      clearTimeout(reconnectTimer);reconnectTimer=null;
+      clearTimeout(disconnectTimer);disconnectTimer=null;
+      status.textContent='✓ Conectado ao palco BoraKê';
+      status.classList.add('good');startBtn.disabled=false;
+      setText('phoneScoreState','Sincronizando…');
+      if(stopFn)candidate.send({type:'mic-status',active:true});
     });
-    connection.on('error',(err)=>{status.textContent='Erro de conexão: '+err.message;clearPhoneScore('Erro de conexão. Reabra o link para sincronizar.');});
+    candidate.on('data',data=>{if(connection===candidate)showPhoneScore(data);});
+    candidate.on('close',()=>{if(connection===candidate){connection=null;scheduleReconnect();}});
+    candidate.on('error',()=>{if(connection===candidate){connection=null;scheduleReconnect();}});
+  }
+  phonePeer.on('open',()=>{status.textContent='Conectando ao palco…';connectToDesktop();});
+  phonePeer.on('error',err=>{
+    if(pageClosed)return;
+    if(err.type==='peer-unavailable'||err.type==='network'||err.type==='socket-error'){
+      scheduleReconnect();
+    } else {
+      status.textContent='Conexão indisponível. Confira sua internet ('+(err.type||'erro')+').';
+      clearPhoneScore();
+    }
   });
-  phonePeer.on('error',err=>{status.textContent=`Não foi possível conectar (${err.type||'erro'}). Confira o código e tente novamente.`;clearPhoneScore();});
   startBtn.addEventListener('click',async()=>{
     if(stopFn){stopFn();stopFn=null;void keepAwake.stop();if(connection?.open)connection.send({type:'mic-status',active:false});startBtn.textContent='Ativar microfone';setText('phoneMeterText','Microfone pausado');return;}
     startBtn.disabled=true;
@@ -634,7 +664,7 @@ function initPhoneMode(roomCode) {
     } catch(e){void keepAwake.stop();status.classList.remove('good');status.textContent='Não foi possível abrir o microfone: '+e.message;}
     finally {startBtn.disabled=false;}
   });
-  window.addEventListener('pagehide',()=>{if(stopFn)stopFn();stopFn=null;void keepAwake.stop();document.removeEventListener('visibilitychange',handleVisibility);phonePeer.destroy();});
+  window.addEventListener('pagehide',()=>{pageClosed=true;clearTimeout(reconnectTimer);clearTimeout(disconnectTimer);if(stopFn)stopFn();stopFn=null;void keepAwake.stop();document.removeEventListener('visibilitychange',handleVisibility);phonePeer.destroy();});
 }
 function initDesktop() {
   // Chaves legadas do YouTube não precisam ficar salvas no navegador.
