@@ -9,6 +9,7 @@ Um karaokê doméstico para navegador no MacBook, com busca de vídeos de karaok
 - Microfone de celular remoto usando **PeerJS/WebRTC** e QR Code. Somente indicadores da voz são enviados, sem transmitir gravação.
 - Alternativa de usar o microfone do próprio Mac.
 - Pontuação recreativa V2 de 0 a 100 com critérios mais exigentes: presença de voz, nitidez, continuidade do tom, sustento de notas e variação musical. Evita notas altas por poucos segundos. **Não compara com a melodia original**.
+- Ao receber o evento **ENDED** do player do YouTube, congela a pontuação e apresenta o **resultado final**. Pausar não encerra a avaliação; repetir o mesmo vídeo inicia uma nova rodada. Se não houver pelo menos 10 amostras vocais, exibe “Sem avaliação” em vez de inventar uma nota.
 - Lista de favoritos no navegador.
 
 ## Abrir o site
