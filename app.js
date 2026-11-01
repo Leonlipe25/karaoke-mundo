@@ -1,6 +1,7 @@
 import { estimateVoice, noteName, newScore, addScoreFrame, calculateFunScore, extractYouTubeId, buildFinalResult } from './audio.js';
 import { selectedMicSource } from './mic-source.js';
 import { createScreenAwake } from './wake-lock.js';
+import { makeScoreSnapshot, validateScoreSnapshot } from './score-sync.js';
 
 const $ = (id) => document.getElementById(id);
 const safeJsonParse = (v, fallback) => { try { return JSON.parse(v) ?? fallback; } catch { return fallback; } };
@@ -21,6 +22,8 @@ let localMicStop = null;
 let lastPitch = null;
 let lastRemotePitchAt = 0;
 let searchAbort = null;
+let lastScoreSyncAt = 0;
+let lastScoreSyncPayload = '';
 const loadQueue = () => {
   const saved = safeJsonParse(localStorage.getItem('borake-song-queue'), []);
   return (Array.isArray(saved) ? saved : [])
@@ -251,9 +254,25 @@ async function runSearch(query) {
   } finally { $('searchBtn').disabled = false; $('searchBtn').textContent = 'Pesquisar →'; }
 }
 function decodeHtml(value) { const t = document.createElement('textarea'); t.innerHTML = value; return t.value; }
+// O computador é a fonte oficial do placar: o celular só exibe a nota recebida.
+function sendScoreToPhone(force = false) {
+  if (!remoteConnection?.open) return;
+  const snapshot = makeScoreSnapshot({score,current,playing,finished});
+  const signature = JSON.stringify(snapshot);
+  const now = Date.now();
+  if (!force && (signature === lastScoreSyncPayload || now - lastScoreSyncAt < 450)) return;
+  try {
+    remoteConnection.send(snapshot);
+    lastScoreSyncAt = now;
+    lastScoreSyncPayload = signature;
+  } catch {
+    // A atualização do placar é opcional; a falha nunca interrompe o áudio.
+  }
+}
 function selectSong(song) {
   if (!song || !extractYouTubeId(song.id)) return;
   current = song;
+  playing = false; // não somar medições antes de a nova música realmente tocar
   setText('currentSong',song.title);
   setText('currentArtist',song.channel || 'Vídeo do YouTube');
   $('favoriteCurrentBtn').textContent = favorites.some(s=>s.id===song.id)?'♥':'♡';
@@ -281,6 +300,7 @@ function createPlayer(videoId) {
         // Pause e buffering suspendem a análise, mas preservam a avaliação.
         playing = false;
       }
+      sendScoreToPhone(true);
     },
     onError:(ev)=>{playing=false;notify(`Esse vídeo pode não permitir reprodução incorporada (código ${ev.data}). Tente outro resultado.`);}
   }});
@@ -300,6 +320,7 @@ function resetScore() {
   lastCheerAt=0;
   clearTimeout(cheerTimer);
   clearTimeout(confettiTimer);
+  sendScoreToPhone(true);
 }
 
 function finishPresentation() {
@@ -315,6 +336,7 @@ function finishPresentation() {
     setText('finalScoreMessage','Não detectamos canto suficiente para gerar uma nota. Tente novamente com o microfone ativado.');
     $('scoreNum').innerHTML='--<small>/100</small>';
     $('scoreMeter').style.width='0%';
+    sendScoreToPhone(true);
     return;
   }
   const points = result.points;
@@ -324,6 +346,7 @@ function finishPresentation() {
   $('scoreNum').innerHTML=`${points}<small>/100</small>`;
   $('scoreMeter').style.width=points+'%';
   celebrateFinal(points);
+  sendScoreToPhone(true);
 }
 function activeMicSource(now = Date.now()) {
   return selectedMicSource({
@@ -356,6 +379,7 @@ function consumeMeasurement(m, origin = 'mac') {
   setText('voiceLevel',m.voice ? '♫ Voz detectada' : '♫ Sem voz clara');
   if (!playing || !current || finished) return;
   addScoreFrame(score,m);
+  sendScoreToPhone(false);
   // Só exibir nota após amostra mínima para evitar pontuação alta por um grito curto.
   if (score.vocalFrames < 10) {
     setText('scoreLabel', 'Analisando seu canto…');
@@ -366,6 +390,7 @@ function consumeMeasurement(m, origin = 'mac') {
   $('scoreMeter').style.width=points+'%';
   setText('scoreLabel',points >= 85?'Arrasou! ✨':points >= 70?'Muito bom!':'Continue cantando!');
   announceCheer(points);
+  sendScoreToPhone(false);
 }
 async function startMicAnalysis(onMeasurement) {
   if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microfone exige HTTPS (ou localhost) e navegador compatível.');
@@ -391,6 +416,8 @@ function createRoom() {
   if(peer){try{peer.destroy();}catch{}peer=null;}
   remoteConnection=null;
   lastRemotePitchAt=0;
+  lastScoreSyncPayload='';
+  lastScoreSyncAt=0;
   updateMicSourceLabel();
   room=generateRoomCode();
   peer=new window.Peer('kmundo-'+room,{debug:0});
@@ -409,7 +436,7 @@ function createRoom() {
   peer.on('connection',conn=>{
     if(remoteConnection?.open) {conn.on('open',()=>conn.close());return;}
     remoteConnection=conn;
-    conn.on('open',()=>{lastRemotePitchAt=0;setConnectionStatus('✓ Celular conectado · aguardando voz',true);updateMicSourceLabel();conn.send({type:'welcome'});});
+    conn.on('open',()=>{lastRemotePitchAt=0;lastScoreSyncPayload='';lastScoreSyncAt=0;setConnectionStatus('✓ Celular conectado · aguardando voz',true);updateMicSourceLabel();conn.send({type:'welcome'});sendScoreToPhone(true);});
     conn.on('data',m=>{
       if (remoteConnection !== conn) return;
       if (m?.type === 'pitch') {
@@ -453,20 +480,46 @@ function initPhoneMode(roomCode) {
   if(typeof window.Peer!=='function') {status.textContent='Biblioteca de conexão não carregou. Verifique a internet e recarregue.';return;}
   const phonePeer=new window.Peer(undefined,{debug:0});
   let connection=null;let stopFn=null;
+  function showPhoneScore(raw) {
+    const data = validateScoreSnapshot(raw);
+    if (!data) return;
+    const states = {
+      waiting:'Aguardando música', ready:'Pronto para cantar',
+      playing:'AO VIVO', paused:'Música pausada', finished:'RESULTADO FINAL',
+    };
+    setText('phoneScoreState',states[data.phase]);
+    setText('phoneScoreSong', data.title || 'Escolha uma música no computador.');
+    setText('phoneScoreNum',data.points === null ? '--' : String(data.points));
+    $('phoneScoreFill').style.width=(data.points ?? 0)+'%';
+    $('phoneScorePanel').classList.toggle('phone-score-finished',data.phase==='finished');
+    setText('phoneScoreInfo',
+      data.phase==='finished'
+        ? (data.points === null ? 'Sem avaliação: não foi detectado canto suficiente.' : 'Apresentação encerrada! Esta é sua nota final.')
+        : data.points !== null ? 'Sincronizado com o placar do palco.' : 'Sua nota aparecerá após alguns segundos de canto.');
+  }
+  function clearPhoneScore(message='Conecte ao computador para ver a nota.') {
+    setText('phoneScoreNum','--');
+    setText('phoneScoreState','Desconectado');
+    setText('phoneScoreInfo',message);
+    $('phoneScoreFill').style.width='0%';
+    $('phoneScorePanel').classList.remove('phone-score-finished');
+  }
   phonePeer.on('open',()=>{
     status.textContent='Conectando ao MacBook…';
     connection=phonePeer.connect('kmundo-'+roomCode,{reliable:false});
-    connection.on('open',()=>{status.textContent='✓ Conectado ao MacBook';status.classList.add('good');startBtn.disabled=false;});
+    connection.on('open',()=>{status.textContent='✓ Conectado ao MacBook';status.classList.add('good');startBtn.disabled=false;setText('phoneScoreState','Sincronizando…');});
+    connection.on('data',data=>showPhoneScore(data));
     connection.on('close',()=>{
       status.classList.remove('good');status.textContent='Conexão encerrada. Reabra o link no celular.';
       startBtn.disabled=true;
+      clearPhoneScore();
       if(stopFn){stopFn();stopFn=null;}
       void keepAwake.stop();
       startBtn.textContent='Ativar microfone';
     });
-    connection.on('error',(err)=>{status.textContent='Erro de conexão: '+err.message;});
+    connection.on('error',(err)=>{status.textContent='Erro de conexão: '+err.message;clearPhoneScore('Erro de conexão. Reabra o link para sincronizar.');});
   });
-  phonePeer.on('error',err=>{status.textContent=`Não foi possível conectar (${err.type||'erro'}). Confira o código e tente novamente.`;});
+  phonePeer.on('error',err=>{status.textContent=`Não foi possível conectar (${err.type||'erro'}). Confira o código e tente novamente.`;clearPhoneScore();});
   startBtn.addEventListener('click',async()=>{
     if(stopFn){stopFn();stopFn=null;void keepAwake.stop();if(connection?.open)connection.send({type:'mic-status',active:false});startBtn.textContent='Ativar microfone';setText('phoneMeterText','Microfone pausado');return;}
     startBtn.disabled=true;
