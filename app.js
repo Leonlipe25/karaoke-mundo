@@ -159,7 +159,11 @@ function consumeMeasurement(m) {
   setText('voiceLevel',m.voice ? '♫ Voz detectada' : '♫ Sem voz clara');
   if (!playing || !current) return;
   addScoreFrame(score,m);
-  if (score.vocalFrames < 2) return;
+  // Só exibir nota após amostra mínima para evitar pontuação alta por um grito curto.
+  if (score.vocalFrames < 10) {
+    setText('scoreLabel', 'Analisando seu canto…');
+    return;
+  }
   const points=calculateFunScore(score);
   $('scoreNum').innerHTML=`${points}<small>/100</small>`;
   $('scoreMeter').style.width=points+'%';
