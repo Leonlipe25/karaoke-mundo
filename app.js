@@ -1,4 +1,5 @@
 import { estimateVoice, noteName, newScore, addScoreFrame, calculateFunScore, extractYouTubeId, buildFinalResult } from './audio.js';
+import { selectedMicSource } from './mic-source.js';
 
 const $ = (id) => document.getElementById(id);
 const safeJsonParse = (v, fallback) => { try { return JSON.parse(v) ?? fallback; } catch { return fallback; } };
@@ -17,7 +18,7 @@ let room = '';
 let remoteConnection = null;
 let localMicStop = null;
 let lastPitch = null;
-let lastConnectionAt = 0;
+let lastRemotePitchAt = 0;
 let searchAbort = null;
 
 // Catálogo inicial de vídeos identificados no YouTube: não requer chave de API.
@@ -195,8 +196,32 @@ function finishPresentation() {
   $('scoreNum').innerHTML=`${points}<small>/100</small>`;
   $('scoreMeter').style.width=points+'%';
 }
-function consumeMeasurement(m) {
+function activeMicSource(now = Date.now()) {
+  return selectedMicSource({
+    remoteConnected: Boolean(remoteConnection?.open),
+    remoteLastAt: lastRemotePitchAt,
+    localEnabled: Boolean(localMicStop),
+    now,
+  });
+}
+function updateMicSourceLabel() {
+  const source = activeMicSource();
+  setText('micSourceStatus',
+    source === 'phone' ? '🎤 Pontuando pelo celular · Mac em espera'
+    : source === 'mac' ? '🎙 Pontuando pelo Mac · reserva automática'
+    : remoteConnection?.open ? '📱 Celular conectado · aguardando microfone'
+    : '🎤 Nenhum microfone ativo');
+}
+function consumeMeasurement(m, origin = 'mac') {
   if (!m || typeof m !== 'object' || !Number.isFinite(m.rms) || !Number.isFinite(m.clarity)) return;
+  const now = Date.now();
+  // Medições do celular, mesmo no silêncio, confirmam que o microfone está ativo.
+  if (origin === 'phone') {
+    if (!remoteConnection?.open) return;
+    lastRemotePitchAt = now;
+  }
+  updateMicSourceLabel();
+  if (origin !== activeMicSource(now)) return;
   lastPitch=m;
   setText('pitchNote',m.voice ? `♪ ${noteName(m.hz)}` : '♪ Aguardando voz');
   setText('voiceLevel',m.voice ? '♫ Voz detectada' : '♫ Sem voz clara');
@@ -234,6 +259,9 @@ function generateRoomCode(){const a=new Uint8Array(4); crypto.getRandomValues(a)
 function createRoom() {
   if(typeof window.Peer!=='function') {setConnectionStatus('Não foi possível carregar a conexão remota. Verifique internet.');return;}
   if(peer){try{peer.destroy();}catch{}peer=null;}
+  remoteConnection=null;
+  lastRemotePitchAt=0;
+  updateMicSourceLabel();
   room=generateRoomCode();
   peer=new window.Peer('kmundo-'+room,{debug:0});
   setConnectionStatus('Criando sala…');
@@ -251,13 +279,23 @@ function createRoom() {
   peer.on('connection',conn=>{
     if(remoteConnection?.open) {conn.on('open',()=>conn.close());return;}
     remoteConnection=conn;
-    conn.on('open',()=>{lastConnectionAt=Date.now();setConnectionStatus('✓ Celular conectado',true);conn.send({type:'welcome'});});
-    conn.on('data',m=>{if(m?.type==='pitch') {lastConnectionAt=Date.now();consumeMeasurement(m);}});
-    conn.on('close',()=>{if(remoteConnection===conn) {remoteConnection=null;setConnectionStatus('Celular desconectado. Reabra o link.');}});
-    conn.on('error',()=>setConnectionStatus('Erro na conexão com o celular.'));
+    conn.on('open',()=>{lastRemotePitchAt=0;setConnectionStatus('✓ Celular conectado · aguardando voz',true);updateMicSourceLabel();conn.send({type:'welcome'});});
+    conn.on('data',m=>{
+      if (remoteConnection !== conn) return;
+      if (m?.type === 'pitch') {
+        consumeMeasurement(m, 'phone');
+        if (activeMicSource()==='phone') setConnectionStatus('✓ Celular é o microfone principal',true);
+      } else if (m?.type === 'mic-status' && m.active === false) {
+        lastRemotePitchAt=0;
+        setConnectionStatus('Celular conectado · microfone pausado',true);
+        updateMicSourceLabel();
+      }
+    });
+    conn.on('close',()=>{if(remoteConnection===conn) {remoteConnection=null;lastRemotePitchAt=0;setConnectionStatus('Celular desconectado. Reabra o link.');updateMicSourceLabel();}});
+    conn.on('error',()=>{if(remoteConnection===conn){lastRemotePitchAt=0;updateMicSourceLabel();}setConnectionStatus('Erro na conexão com o celular.');});
   });
   peer.on('error',(err)=>{setConnectionStatus(`Falha ao criar sala: ${err.message}`);$('createRoomBtn').disabled=false;});
-  peer.on('disconnected',()=>setConnectionStatus('Conexão ao servidor perdida. Tente criar outra sala.'));
+  peer.on('disconnected',()=>{lastRemotePitchAt=0;updateMicSourceLabel();setConnectionStatus('Conexão ao servidor perdida. Tente criar outra sala.');});
 }
 function initPhoneMode(roomCode) {
   $('desktopApp').classList.add('hidden');$('phoneApp').classList.remove('hidden');
@@ -275,7 +313,7 @@ function initPhoneMode(roomCode) {
   });
   phonePeer.on('error',err=>{status.textContent=`Não foi possível conectar (${err.type||'erro'}). Confira o código e tente novamente.`;});
   startBtn.addEventListener('click',async()=>{
-    if(stopFn){stopFn();stopFn=null;startBtn.textContent='Ativar microfone';setText('phoneMeterText','Microfone pausado');return;}
+    if(stopFn){stopFn();stopFn=null;if(connection?.open)connection.send({type:'mic-status',active:false});startBtn.textContent='Ativar microfone';setText('phoneMeterText','Microfone pausado');return;}
     startBtn.disabled=true;
     try {
       stopFn=await startMicAnalysis(m=>{
@@ -285,6 +323,7 @@ function initPhoneMode(roomCode) {
         $('phoneMeterFill').style.width=Math.min(100,Math.round(m.rms*400))+'%';
         $('phoneVoiceIndicator').style.transform=`scale(${1+Math.min(.23,m.rms*.9)})`;
       });
+      if(connection?.open)connection.send({type:'mic-status',active:true});
       startBtn.textContent='Pausar microfone';
     } catch(e){status.classList.remove('good');status.textContent='Não foi possível abrir o microfone: '+e.message;}
     finally {startBtn.disabled=false;}
@@ -293,6 +332,9 @@ function initPhoneMode(roomCode) {
 }
 function initDesktop() {
   renderChips();renderFavorites();renderStarterCatalog();
+  updateMicSourceLabel();
+  // Atualiza aviso inclusive quando o celular simplesmente para de transmitir.
+  const sourceIndicatorTimer=setInterval(updateMicSourceLabel,750);
   document.querySelectorAll('[data-region]').forEach(b=>b.addEventListener('click',()=>{
     region=b.dataset.region;document.querySelectorAll('[data-region]').forEach(t=>t.classList.toggle('active',t===b));renderChips();renderStarterCatalog($('searchInput').value);
   }));
@@ -312,8 +354,8 @@ function initDesktop() {
   });
   $('resetScoreBtn').addEventListener('click',resetScore);
   $('localMicBtn').addEventListener('click',async()=>{
-    if(localMicStop){localMicStop();localMicStop=null;$('localMicBtn').textContent='🎙 Microfone do Mac';return;}
-    try{localMicStop=await startMicAnalysis(consumeMeasurement);$('localMicBtn').textContent='◼ Parar microfone do Mac';}
+    if(localMicStop){localMicStop();localMicStop=null;updateMicSourceLabel();$('localMicBtn').textContent='🎙 Microfone do Mac';return;}
+    try{localMicStop=await startMicAnalysis(m=>consumeMeasurement(m,'mac'));updateMicSourceLabel();$('localMicBtn').textContent='◼ Parar microfone do Mac';}
     catch(e){alert('Não foi possível abrir o microfone: '+e.message);}
   });
   $('createRoomBtn').addEventListener('click',createRoom);
@@ -326,7 +368,7 @@ function initDesktop() {
   const params=new URLSearchParams(location.search);
   const initialId=extractYouTubeId(params.get('v'));
   if(initialId)selectSong({id:initialId,title:'Música compartilhada',channel:'YouTube'});
-  window.addEventListener('pagehide',()=>{if(localMicStop)localMicStop();if(peer)peer.destroy();});
+  window.addEventListener('pagehide',()=>{clearInterval(sourceIndicatorTimer);if(localMicStop)localMicStop();if(peer)peer.destroy();});
 }
 const remoteCode=new URLSearchParams(location.search).get('remote');
 if(remoteCode) initPhoneMode(remoteCode.toUpperCase()); else initDesktop();
