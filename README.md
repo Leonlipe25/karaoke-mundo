@@ -10,13 +10,14 @@ Karaokê doméstico com identidade neon para navegador no MacBook, com busca de 
 - Abas **Brasileiras**, **Internacionais** e **Todas**, com pesquisa por gênero, artista e música.
 - Busca integrada via **YouTube Data API v3** com chave guardada no servidor Render.
 - Enquanto o servidor estiver sem chave, mantém seleção inicial de 10 vídeos e permite reproduzir qualquer link embutível do YouTube.
-- Microfone de celular remoto usando **PeerJS/WebRTC** e QR Code. Somente indicadores da voz são enviados, sem transmitir gravação.
+- Microfone de celular remoto usando **PeerJS/WebRTC** e QR Code. Por padrão, somente indicadores da voz são enviados, sem transmitir gravação. Ao ativar voluntariamente o reconhecimento de fala, também são enviados os textos reconhecidos pelo navegador, nunca gravações pelo BoraKê.
 - **Tela acesa durante o canto:** no modo celular, o BoraKê solicita Screen Wake Lock automaticamente ao iniciar o microfone e libera ao pausar. Ao retornar ao Safari/Chrome, tenta reativar. Mostra status e botão de nova tentativa se o navegador negar ou liberar o bloqueio.
 - **Compatibilidade:** Chrome Android atualizado; Safari iPhone com suporte completo a partir do iOS 18.4 (iOS 16.4–18.3 tem suporte parcial); Chrome iPhone sujeito às capacidades do WebKit/iOS. Se não houver suporte, o app avisa para manter a tela ligada manualmente.
 - **Importante:** bloquear o celular pelo botão lateral ou alternar para outro aplicativo pode suspender a análise e a transmissão. Wake Lock impede apenas o bloqueio automático, quando o navegador e o sistema permitem. O recurso usa mais bateria.
-- **Afinação por referência (beta):** selecione um vídeo, ative um microfone e clique em **Gravar guia desta música**. O BoraKê reinicia o vídeo, registra somente frequências vocais e segundos de reprodução e salva os pontos na memória local do navegador. Ao repetir a música, compara as notas cantadas ao guia sincronizado: **70% de acerto de notas + 30% de qualidade vocal**, com tolerância moderada de semitons e oitava. **Não é automaticamente a melodia do cantor original**: a referência é uma apresentação gravada pelo usuário. Sem guia, mantém a nota recreativa. Nenhum áudio bruto é armazenado.
+- **Comparação de letra (beta, sem API paga):** no computador, selecione a música e forneça uma letra de referência que você tem autorização para utilizar. No celular, ative o microfone, marque o consentimento explícito e habilite o reconhecimento de palavras do navegador. O texto reconhecido (não a gravação de áudio) viaja pelo PeerJS ao computador. Após pelo menos 20 palavras em duas frases, a nota é composta por **70% avaliação vocal + 30% estimativa de acerto da letra**; sem letra ou quando o navegador não reconhecer com segurança, mantém a nota vocal. A letra fica somente no navegador do computador e não é publicada no site.
+- **Limitação de custos e licenças:** a versão de teste não busca automaticamente letras de terceiros no YouTube nem usa o Musixmatch. A YouTube Data API não fornece legendas de qualquer vídeo sem autorização; uma integração automática com catálogo licenciado exige plano e permissões adequados. Não foi contratada API paga.
 - **QR persistente:** cada computador/navegador guarda um identificador de sala aleatório de 128 bits em localStorage. Ao voltar ao BoraKê, a sala tenta reabrir automaticamente com o mesmo código; o celular com o link antigo correto pode reconectar sem novo scan. A página do celular também tenta reconectar quando o computador reinicia. O primeiro QR atualizado precisa ser escaneado uma vez, pois IDs das versões anteriores não são compatíveis.
-- **Placar ao vivo no celular:** o MacBook calcula a nota e envia atualizações de 0 a 100 ao telefone pela conexão PeerJS já existente. O telefone mostra música atual, estado (cantando/pausado/finalizado) e nota final, sem calcular outra pontuação e sem receber áudio bruto.
+- **Placar ao vivo no celular:** o MacBook calcula a nota e envia atualizações de 0 a 100 ao telefone pela conexão PeerJS já existente. O telefone mostra música atual, estado (cantando/pausado/finalizado), eventual acerto de letra e nota final, sem calcular outra pontuação.
 - **Fonte única de pontuação:** se celular e Mac estiverem com microfone ativo, o celular tem prioridade. O Mac continua disponível como reserva e só pontua após ~1,6 segundo sem medição do celular, se seu microfone já estiver ativado. Pausar o microfone remoto ou desconectar volta imediatamente ao Mac. Nenhuma duplicação das amostras.
 - Alternativa de usar o microfone do próprio Mac.
 - Pontuação recreativa V2 de 0 a 100 com critérios mais exigentes: presença de voz, nitidez, continuidade do tom, sustento de notas e variação musical. Evita notas altas por poucos segundos. **Não compara com a melodia original**.
@@ -34,13 +35,14 @@ A busca de músicas é encaminhada ao backend Node.js hospedado em https://karao
 
 Configuração única: Render → karaoke-mundo-api → Environment → Add Environment Variable → nome `YOUTUBE_API_KEY`, valor da chave criada no Google Cloud → Save, rebuild/deploy. A chave usada pelo servidor deve ter restrição de API à YouTube Data API v3; **não pode manter restrição de aplicativo por HTTP referrer**, porque agora quem chama o YouTube é o servidor. Para proteger a cota, o backend tem cache e limites básicos. A API não possui autenticação de usuários: o CORS limita navegadores, mas não impede automações externas; monitore cotas e configure limites no Google Cloud.
 
-### Afinando com um guia pessoal
-1. No computador, selecione o vídeo pelo buscador ou cole o link.
-2. Conecte o celular e **ative o microfone**. Se quiser, use o microfone do Mac.
-3. Em **Afinação por referência**, escolha **Gravar guia desta música**. O vídeo volta ao início; cante o trecho desejado até o fim (ou finalize manualmente).
-4. Repita o vídeo. Agora aparecerá a nota de afinação baseada no guia gravado; você poderá remover ou regravar o guia.
-5. O guia é armazenado **somente no navegador que gravou**, por ID do vídeo. Se apagar dados locais ou trocar de computador, ele não estará disponível.
-A comparação pressupõe mesmo vídeo, mesma velocidade e voz bem captada; atrasos de rede, diferença de tonalidade e eco podem influenciar o resultado. O método não obtém transcrição nem extrai áudio dos vídeos do YouTube.
+### Como testar a letra sem pagar APIs
+1. Abra o BoraKê no Mac, selecione uma música e encontre o bloco **Acerto da letra**.
+2. Clique em **Adicionar letra de referência** e insira uma letra de sua autoria ou que esteja autorizado a usar. O app salva somente neste navegador. O título e o artista são campos para uma futura busca licenciada; não fazem a busca automaticamente.
+3. No celular, conecte-se pelo QR já salvo, ative o microfone e selecione o idioma.
+4. Leia a autorização de reconhecimento e marque a caixa apenas se concordar; clique **Ativar comparação de letra**.
+5. Ao cantar com o vídeo tocando no computador, acompanhe as palavras reconhecidas e a nota de letra. O resultado é experimental: canto e som ambiente podem prejudicar a precisão.
+6. Desative a opção no celular para parar o reconhecimento; a análise de frequência vocal continua. Em alguns navegadores o reconhecimento de voz usa serviços externos; a implementação é do fornecedor do navegador, não do BoraKê.
+7. Se não houver suporte nativo ao SpeechRecognition no navegador, a interface avisa e não penaliza a nota.
 
 ### Pareamento sem novo QR
 O primeiro acesso após esta atualização exige um novo scan, porque o código antigo era temporário. Depois, mantenha o endereço do celular nos favoritos. O computador usa o mesmo código ao reabrir o site, e o celular tenta reconectar. **Trocar QR (desvincula celular)** invalida o link anterior. Desligar/fechar o navegador do celular interrompe o microfone; ao reabrir, pode ser necessário apertar **Ativar microfone** novamente por exigência de privacidade dos sistemas.
@@ -60,7 +62,7 @@ Acesse http://localhost:8000. O microfone remoto do celular exige HTTPS ou ambie
 
 ## Limitações
 - O projeto **não hospeda músicas**; utiliza vídeos incorporados do YouTube, sujeitos a disponibilidade, região e permissão de incorporação.
-- A pontuação avalia presença e clareza da voz; **não diz se as notas da música foram acertadas**. Música alta pode afetar a medida.
+- A pontuação vocal não comprova acerto da melodia; a comparação de letra avalia palavras estimadas pelo navegador, não afinação. Uma letra incorreta ou fala transcrita com erro distorcerá o resultado. Música alta pode afetar a medida.
 - A pesquisa geral depende de configurar YOUTUBE_API_KEY no Render e da cota do YouTube. A seleção não garante reprodução de vídeos que bloqueiem incorporação.
 - A fila e os favoritos são armazenados apenas no navegador atual; não há conta nem sincronização entre dispositivos.
 - O serviço público PeerJS pode falhar em redes com restrições de WebRTC. Não foi validado em dispositivos reais nesta versão.
