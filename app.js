@@ -20,8 +20,11 @@ let localMicStop = null;
 let lastPitch = null;
 let lastRemotePitchAt = 0;
 let searchAbort = null;
-const loadQueue = () => safeJsonParse(localStorage.getItem('borake-song-queue'), [])
-  .filter(song => extractYouTubeId(song?.id) && typeof song.title === 'string').slice(0,30);
+const loadQueue = () => {
+  const saved = safeJsonParse(localStorage.getItem('borake-song-queue'), []);
+  return (Array.isArray(saved) ? saved : [])
+    .filter(song => extractYouTubeId(song?.id) && typeof song.title === 'string').slice(0,30);
+};
 let songQueue = loadQueue();
 let stageMode = false;
 let lastCheerAt = 0;
@@ -457,6 +460,8 @@ function initPhoneMode(roomCode) {
   window.addEventListener('pagehide',()=>{if(stopFn)stopFn();phonePeer.destroy();});
 }
 function initDesktop() {
+  // Chaves legadas do YouTube não precisam ficar salvas no navegador.
+  localStorage.removeItem('karaoke-youtube-key');
   renderChips();renderFavorites();renderQueue();renderStarterCatalog();
   updateMicSourceLabel();
   // Atualiza aviso inclusive quando o celular simplesmente para de transmitir.
