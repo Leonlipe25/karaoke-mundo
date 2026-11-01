@@ -4,7 +4,7 @@ const $ = (id) => document.getElementById(id);
 const safeJsonParse = (v, fallback) => { try { return JSON.parse(v) ?? fallback; } catch { return fallback; } };
 const loadFavorites = () => safeJsonParse(localStorage.getItem('karaoke-favorites'), []).filter(s => extractYouTubeId(s?.id));
 let favorites = loadFavorites();
-let apiKey = localStorage.getItem('karaoke-youtube-key') || '';
+const SEARCH_API = 'https://karaoke-mundo-api.onrender.com/api/search';
 let region = 'BR';
 let current = null;
 let player = null;
@@ -107,29 +107,24 @@ function renderStarterCatalog(query = '') {
   box.append(message,link,tip);
   results.prepend(box);
   setText('resultsCount',songs.length+' pré-selecionadas');
-  notify('Catálogo inicial disponível sem chave. Para buscar todo o YouTube aqui dentro, configure uma chave da YouTube Data API.',true);
+  notify('Catálogo inicial disponível. A pesquisa geral usa o servidor do Karaokê Mundo.',true);
 }
 
 async function runSearch(query) {
   const text = query?.trim(); if (!text) return;
-  if (!apiKey) {
-    renderStarterCatalog(text);
-    return;
-  }
   $('searchBtn').disabled = true; $('searchBtn').textContent = 'Buscando…';
   notify('Buscando vídeos de karaokê no YouTube…');
   if (searchAbort) searchAbort.abort(); searchAbort = new AbortController();
-  const params = new URLSearchParams({part:'snippet',type:'video',videoEmbeddable:'true',maxResults:'16',q:searchTerms(text),key:apiKey});
-  if (region !== 'ALL') params.set('relevanceLanguage',region === 'BR' ? 'pt' : 'en');
+  const params = new URLSearchParams({q:text,region});
   try {
-    const response = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`,{signal:searchAbort.signal});
+    const response = await fetch(`${SEARCH_API}?${params}`,{signal:searchAbort.signal});
     const json = await response.json();
     if (!response.ok) throw new Error(json.error?.message || 'Erro ao pesquisar no YouTube');
-    const songs = (json.items || []).map(item => ({id:item.id?.videoId,title:decodeHtml(item.snippet?.title || ''),channel:decodeHtml(item.snippet?.channelTitle || '')})).filter(s => extractYouTubeId(s.id));
+    const songs = (json.items || []).map(item => ({id:item.id,title:decodeHtml(item.title || ''),channel:decodeHtml(item.channel || '')})).filter(s => extractYouTubeId(s.id));
     renderResults(songs,region === 'BR' ? 'Karaokê brasileiro' : region === 'INT' ? 'Karaokê internacional' : 'Todos os estilos');
     notify(`${songs.length} vídeos encontrados. A disponibilidade depende do proprietário de cada vídeo.`,true);
   } catch (e) {
-    if (e.name !== 'AbortError') notify(`Falha na busca: ${e.message}. Confira a chave, a cota da API e as restrições por domínio.`);
+    if (e.name !== 'AbortError') { renderStarterCatalog(text); notify(`Busca online indisponível: ${e.message}. Exibindo o catálogo inicial.`,false); }
   } finally { $('searchBtn').disabled = false; $('searchBtn').textContent = 'Pesquisar →'; }
 }
 function decodeHtml(value) { const t = document.createElement('textarea'); t.innerHTML = value; return t.value; }
@@ -250,9 +245,9 @@ function initPhoneMode(roomCode) {
   window.addEventListener('pagehide',()=>{if(stopFn)stopFn();phonePeer.destroy();});
 }
 function initDesktop() {
-  renderChips();renderFavorites();if(!apiKey)renderStarterCatalog();
+  renderChips();renderFavorites();renderStarterCatalog();
   document.querySelectorAll('[data-region]').forEach(b=>b.addEventListener('click',()=>{
-    region=b.dataset.region;document.querySelectorAll('[data-region]').forEach(t=>t.classList.toggle('active',t===b));renderChips();if(!apiKey)renderStarterCatalog($('searchInput').value);
+    region=b.dataset.region;document.querySelectorAll('[data-region]').forEach(t=>t.classList.toggle('active',t===b));renderChips();renderStarterCatalog($('searchInput').value);
   }));
   $('searchForm').addEventListener('submit',e=>{e.preventDefault();runSearch($('searchInput').value);});
   $('directBtn').addEventListener('click',()=>{
@@ -278,10 +273,9 @@ function initDesktop() {
   $('copyRoomBtn').addEventListener('click',async()=>{
     try{await navigator.clipboard.writeText(roomUrl(room));$('copyRoomBtn').textContent='Link copiado ✓';}catch{$('copyRoomBtn').textContent='Não foi possível copiar';}
   });
-  $('settingsBtn').addEventListener('click',()=>{$('apiKeyInput').value=apiKey;$('settingsDialog').showModal();});
-  $('settingsForm').addEventListener('submit',e=>{e.preventDefault();apiKey=$('apiKeyInput').value.trim();if(apiKey)localStorage.setItem('karaoke-youtube-key',apiKey);else localStorage.removeItem('karaoke-youtube-key');$('settingsDialog').close();if(!apiKey)renderStarterCatalog($('searchInput').value);notify(apiKey?'Pesquisa integrada configurada. Escolha uma música.':'Chave removida. Use um link direto para reproduzir.',Boolean(apiKey));});
-  $('clearKeyBtn').addEventListener('click',()=>{$('apiKeyInput').value='';apiKey='';localStorage.removeItem('karaoke-youtube-key');$('settingsDialog').close();renderStarterCatalog($('searchInput').value);notify('Chave removida. A busca integrada precisa de uma chave válida.');});
-  if(apiKey)notify('Pesquisa integrada configurada. Escolha uma música para começar.',true);
+  $('settingsBtn').addEventListener('click',()=>{ $('settingsDialog').showModal(); });
+  $('settingsForm').addEventListener('submit',e=>{e.preventDefault();$('settingsDialog').close();});
+  $('clearKeyBtn').addEventListener('click',()=>{localStorage.removeItem('karaoke-youtube-key');$('settingsDialog').close();notify('Chave antiga removida deste navegador. A pesquisa agora usa o servidor.',true);});
   const params=new URLSearchParams(location.search);
   const initialId=extractYouTubeId(params.get('v'));
   if(initialId)selectSong({id:initialId,title:'Música compartilhada',channel:'YouTube'});
