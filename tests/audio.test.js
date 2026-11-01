@@ -28,5 +28,55 @@ test('Pontuação recreativa separa silêncio de canto',()=>{
   addScoreFrame(score,{voice:false,rms:0,clarity:0});
   assert.equal(calculateFunScore(score),0);
   addScoreFrame(score,{voice:true,rms:0.12,clarity:0.9});
-  assert.ok(calculateFunScore(score)>50);
+  assert.ok(calculateFunScore(score)>0);
+  assert.ok(calculateFunScore(score)<=55);
+});
+
+function samplesFromMidi(notes, {clarity = 0.94, intro = 0, breakEvery = 0} = {}) {
+  const score = newScore();
+  for (let i = 0; i < intro; i++) addScoreFrame(score, {voice:false,rms:0,clarity:0,hz:0});
+  notes.forEach((midi, i) => {
+    if (breakEvery && i && i % breakEvery === 0) addScoreFrame(score,{voice:false,rms:0,clarity:0,hz:0});
+    const hz = 440 * 2 ** ((midi - 69)/12);
+    addScoreFrame(score,{voice:true,rms:0.12,clarity,hz});
+  });
+  return score;
+}
+
+test('Longo trecho com notas sustentadas e variação moderada supera nota única', () => {
+  const notes = [60,64,67,65,69,67,62,65,67,64].flatMap(n => Array(7).fill(n));
+  const varied=calculateFunScore(samplesFromMidi(notes));
+  const monotone=calculateFunScore(samplesFromMidi(Array(notes.length).fill(64)));
+  assert.ok(varied > monotone, `varied=${varied}, monotone=${monotone}`);
+  assert.ok(varied >= 85 && varied <= 100, `varied=${varied}`);
+  assert.ok(monotone < 85, `monotone=${monotone}`);
+});
+
+test('Mudanças bruscas a cada amostra pontuam menos que canto estável', () => {
+  const unstable = calculateFunScore(samplesFromMidi(Array.from({length: 80}, (_,i) => i%2 ? 77 : 60)));
+  const stable = calculateFunScore(samplesFromMidi([60,64,67,65,69,67,62,65,67,64].flatMap(n=>Array(8).fill(n))));
+  assert.ok(unstable < stable, `unstable=${unstable}, stable=${stable}`);
+  assert.ok(unstable < 80, `unstable=${unstable}`);
+});
+
+test('Não entrega 90 pontos após poucos segundos', () => {
+  const shortScore = samplesFromMidi(Array(8).fill(60));
+  const mediumScore = samplesFromMidi(Array(30).fill(60));
+  assert.ok(calculateFunScore(shortScore)<=55);
+  assert.ok(calculateFunScore(mediumScore)<=84);
+});
+
+test('Introdução instrumental antes de começar a cantar não reduz nota', () => {
+  const notes = [60,64,67,65,69,67,62,65,67,64].flatMap(n => Array(8).fill(n));
+  const withIntro = calculateFunScore(samplesFromMidi(notes,{intro:120}));
+  const withoutIntro = calculateFunScore(samplesFromMidi(notes));
+  assert.equal(withIntro,withoutIntro);
+});
+
+test('Pausas durante o canto reduzem atividade sem zerar a avaliação', () => {
+  const notes = [60,64,67,65,69,67,62,65,67,64].flatMap(n => Array(8).fill(n));
+  const continuous = calculateFunScore(samplesFromMidi(notes));
+  const paused = calculateFunScore(samplesFromMidi(notes,{breakEvery:6}));
+  assert.ok(paused < continuous, `paused=${paused}, continuous=${continuous}`);
+  assert.ok(paused >= 0);
 });
