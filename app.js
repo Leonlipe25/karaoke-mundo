@@ -32,7 +32,7 @@ const starterSongs = [
   { id:'aFpj_kRkdHg', title:'Bohemian Rhapsody — Queen', channel:'karaoke SESH', region:'INT', tags:'rock clássico internacional' },
   { id:'WQaUGRL3yS4', title:'Shallow — Lady Gaga e Bradley Cooper', channel:'karaoke SESH', region:'INT', tags:'pop internacional baladas dueto' },
 ];
-const normalizeSearch = (value) => String(value || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().trim();
+const normalizeSearch = (value) => String(value || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
 
 const chipsByRegion = {
   BR: ['Sertanejo', 'Pagode', 'MPB', 'Forró', 'Samba', 'Rock nacional'],
