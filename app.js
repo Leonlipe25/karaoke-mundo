@@ -1,0 +1,254 @@
+import { estimateVoice, noteName, newScore, addScoreFrame, calculateFunScore, extractYouTubeId } from './audio.js';
+
+const $ = (id) => document.getElementById(id);
+const safeJsonParse = (v, fallback) => { try { return JSON.parse(v) ?? fallback; } catch { return fallback; } };
+const loadFavorites = () => safeJsonParse(localStorage.getItem('karaoke-favorites'), []).filter(s => extractYouTubeId(s?.id));
+let favorites = loadFavorites();
+let apiKey = localStorage.getItem('karaoke-youtube-key') || '';
+let region = 'BR';
+let current = null;
+let player = null;
+let playerReady = false;
+let playing = false;
+let score = newScore();
+let peer = null;
+let room = '';
+let remoteConnection = null;
+let localMicStop = null;
+let lastPitch = null;
+let lastConnectionAt = 0;
+let searchAbort = null;
+
+const chipsByRegion = {
+  BR: ['Sertanejo', 'Pagode', 'MPB', 'Forró', 'Samba', 'Rock nacional'],
+  INT: ['Pop internacional', 'Rock clássico', 'Anos 80', 'Baladas', 'Reggaeton', 'K-pop'],
+  ALL: ['Sertanejo', 'Pop internacional', 'Pagode', 'Rock', 'Reggaeton', 'MPB'],
+};
+const setText = (id, v) => { $(id).textContent = v; };
+function notify(message, success = false) {
+  const box = $('searchNotice');
+  box.textContent = message;
+  box.classList.toggle('success', success);
+}
+function searchTerms(query) {
+  if (region === 'BR') return `${query} karaokê playback letra`;
+  if (region === 'INT') return `${query} karaoke instrumental lyrics`;
+  return `${query} karaoke playback lyrics`;
+}
+function renderChips() {
+  $('chips').replaceChildren(...chipsByRegion[region].map((word) => {
+    const b = document.createElement('button');
+    b.className = 'chip'; b.type = 'button'; b.textContent = word;
+    b.addEventListener('click', () => { $('searchInput').value = word; runSearch(word); });
+    return b;
+  }));
+}
+function makeSongCard(song) {
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'song-card';
+  const image = document.createElement('img');
+  image.src = `https://i.ytimg.com/vi/${song.id}/mqdefault.jpg`;
+  image.alt = ''; image.loading = 'lazy'; image.referrerPolicy = 'no-referrer';
+  const box = document.createElement('span'); box.style.minWidth = '0';
+  const title = document.createElement('strong'); title.textContent = song.title;
+  const channel = document.createElement('small'); channel.textContent = song.channel || 'YouTube';
+  box.append(title, channel); b.append(image, box); b.addEventListener('click', () => selectSong(song));
+  return b;
+}
+function renderResults(songs, title) {
+  const container = $('results'); container.replaceChildren();
+  setText('resultsTitle', title); setText('resultsCount', `${songs.length} resultado(s)`);
+  if (!songs.length) {
+    container.innerHTML = '<div class="empty-results"><div class="empty-icon">⌕</div><strong>Nenhum resultado</strong><p>Tente outro artista ou estilo.</p></div>';
+    return;
+  }
+  container.append(...songs.map(makeSongCard));
+}
+function renderFavorites() {
+  const root = $('favorites'); root.replaceChildren();
+  if (!favorites.length) { const p = document.createElement('p'); p.className = 'muted'; p.textContent = 'Suas músicas favoritas aparecem aqui.'; root.append(p); return; }
+  root.append(...favorites.map(s => {
+    const b = document.createElement('button'); b.className = 'favorite-item'; b.textContent = `♥ ${s.title}`;
+    b.addEventListener('click', () => selectSong(s)); return b;
+  }));
+}
+async function runSearch(query) {
+  const text = query?.trim(); if (!text) return;
+  if (!apiKey) {
+    const target = `https://www.youtube.com/results?search_query=${encodeURIComponent(searchTerms(text))}`;
+    const link = document.createElement('a'); link.href = target; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'Abrir pesquisa no YouTube';
+    const box = $('searchNotice'); box.classList.remove('success'); box.replaceChildren(document.createTextNode('A pesquisa integrada exige uma chave gratuita da API. '), link, document.createTextNode('. Copie o link do vídeo desejado e cole aqui.'));
+    $('settingsBtn').classList.add('needs-setup'); return;
+  }
+  $('searchBtn').disabled = true; $('searchBtn').textContent = 'Buscando…';
+  notify('Buscando vídeos de karaokê no YouTube…');
+  if (searchAbort) searchAbort.abort(); searchAbort = new AbortController();
+  const params = new URLSearchParams({part:'snippet',type:'video',videoEmbeddable:'true',maxResults:'16',q:searchTerms(text),key:apiKey});
+  if (region !== 'ALL') params.set('relevanceLanguage',region === 'BR' ? 'pt' : 'en');
+  try {
+    const response = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`,{signal:searchAbort.signal});
+    const json = await response.json();
+    if (!response.ok) throw new Error(json.error?.message || 'Erro ao pesquisar no YouTube');
+    const songs = (json.items || []).map(item => ({id:item.id?.videoId,title:decodeHtml(item.snippet?.title || ''),channel:decodeHtml(item.snippet?.channelTitle || '')})).filter(s => extractYouTubeId(s.id));
+    renderResults(songs,region === 'BR' ? 'Karaokê brasileiro' : region === 'INT' ? 'Karaokê internacional' : 'Todos os estilos');
+    notify(`${songs.length} vídeos encontrados. A disponibilidade depende do proprietário de cada vídeo.`,true);
+  } catch (e) {
+    if (e.name !== 'AbortError') notify(`Falha na busca: ${e.message}. Confira a chave, a cota da API e as restrições por domínio.`);
+  } finally { $('searchBtn').disabled = false; $('searchBtn').textContent = 'Pesquisar →'; }
+}
+function decodeHtml(value) { const t = document.createElement('textarea'); t.innerHTML = value; return t.value; }
+function selectSong(song) {
+  if (!song || !extractYouTubeId(song.id)) return;
+  current = song;
+  setText('currentSong',song.title);
+  setText('currentArtist',song.channel || 'Vídeo do YouTube');
+  $('favoriteCurrentBtn').textContent = favorites.some(s=>s.id===song.id)?'♥':'♡';
+  $('playerPlaceholder').classList.add('hidden');
+  resetScore();
+  const url = new URL(window.location.href); url.searchParams.set('v',song.id);
+  window.history.replaceState(null,'',url.toString());
+  if (playerReady && player) { player.loadVideoById(song.id); }
+  else if (window.YT?.Player) createPlayer(song.id);
+  else notify('Carregando player oficial do YouTube…',true);
+}
+function createPlayer(videoId) {
+  if (player) { if (playerReady) player.loadVideoById(videoId); return; }
+  player = new window.YT.Player('yt-player',{width:'100%',height:'100%',videoId,playerVars:{playsinline:1,rel:0,origin:location.origin},events:{
+    onReady:()=>{playerReady=true;},
+    onStateChange:(ev)=>{playing = ev.data===window.YT.PlayerState.PLAYING; if(ev.data===window.YT.PlayerState.ENDED) { playing=false; setText('scoreLabel','Apresentação encerrada'); }},
+    onError:(ev)=>{playing=false;notify(`Esse vídeo pode não permitir reprodução incorporada (código ${ev.data}). Tente outro resultado.`);}
+  }});
+}
+window.onYouTubeIframeAPIReady = () => { if(current) createPlayer(current.id); };
+function resetScore() {score = newScore(); setText('scoreNum','--');setText('scoreLabel','Pronto para cantar');$('scoreMeter').style.width='0%';setText('pitchNote','♪ Aguardando voz');setText('voiceLevel','♫ Sem sinal');}
+function consumeMeasurement(m) {
+  if (!m || typeof m !== 'object' || !Number.isFinite(m.rms) || !Number.isFinite(m.clarity)) return;
+  lastPitch=m;
+  setText('pitchNote',m.voice ? `♪ ${noteName(m.hz)}` : '♪ Aguardando voz');
+  setText('voiceLevel',m.voice ? '♫ Voz detectada' : '♫ Sem voz clara');
+  if (!playing || !current) return;
+  addScoreFrame(score,m);
+  if (score.vocalFrames < 2) return;
+  const points=calculateFunScore(score);
+  $('scoreNum').innerHTML=`${points}<small>/100</small>`;
+  $('scoreMeter').style.width=points+'%';
+  setText('scoreLabel',points >= 85?'Arrasou! ✨':points >= 70?'Muito bom!':'Continue cantando!');
+}
+async function startMicAnalysis(onMeasurement) {
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microfone exige HTTPS (ou localhost) e navegador compatível.');
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation:true,noiseSuppression:true,autoGainControl:false }, video:false });
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  try {await ctx.resume();} catch {}
+  const src=ctx.createMediaStreamSource(stream); const analyser=ctx.createAnalyser(); analyser.fftSize=4096; analyser.smoothingTimeConstant=.2;src.connect(analyser);
+  const buffer=new Float32Array(2048);
+  let stopped=false;
+  const timer=setInterval(()=>{
+    if(stopped||ctx.state==='closed') return;
+    analyser.getFloatTimeDomainData(buffer);
+    const m=estimateVoice(buffer,ctx.sampleRate);
+    onMeasurement(m);
+  },180);
+  return ()=>{stopped=true;clearInterval(timer);stream.getTracks().forEach(t=>t.stop());src.disconnect();ctx.close().catch(()=>{});};
+}
+function roomUrl(code){const url=new URL(window.location.href);url.search='';url.searchParams.set('remote',code);url.hash='';return url.toString();}
+function setConnectionStatus(label,connected=false){setText('connectionStatus',label);$('connectionStatus').classList.toggle('connected',connected);}
+function generateRoomCode(){const a=new Uint8Array(4); crypto.getRandomValues(a);return Array.from(a,n=>(n%32).toString(32).toUpperCase()).join('') + Math.floor(Math.random()*90+10);}
+function createRoom() {
+  if(typeof window.Peer!=='function') {setConnectionStatus('Não foi possível carregar a conexão remota. Verifique internet.');return;}
+  if(peer){try{peer.destroy();}catch{}peer=null;}
+  room=generateRoomCode();
+  peer=new window.Peer('kmundo-'+room,{debug:0});
+  setConnectionStatus('Criando sala…');
+  $('createRoomBtn').disabled=true;
+  peer.on('open',()=>{
+    setConnectionStatus('Sala ativa. Aguardando celular…');
+    $('roomDetails').classList.remove('hidden');
+    setText('roomCode',room);
+    $('qrCode').replaceChildren();
+    if(window.QRCode) new window.QRCode($('qrCode'),{text:roomUrl(room),width:106,height:106,correctLevel:window.QRCode.CorrectLevel.M});
+    else $('qrCode').textContent='QR indisponível';
+    $('createRoomBtn').disabled=false;
+    $('createRoomBtn').textContent='Gerar outra sala ↻';
+  });
+  peer.on('connection',conn=>{
+    if(remoteConnection?.open) {conn.on('open',()=>conn.close());return;}
+    remoteConnection=conn;
+    conn.on('open',()=>{lastConnectionAt=Date.now();setConnectionStatus('✓ Celular conectado',true);conn.send({type:'welcome'});});
+    conn.on('data',m=>{if(m?.type==='pitch') {lastConnectionAt=Date.now();consumeMeasurement(m);}});
+    conn.on('close',()=>{if(remoteConnection===conn) {remoteConnection=null;setConnectionStatus('Celular desconectado. Reabra o link.');}});
+    conn.on('error',()=>setConnectionStatus('Erro na conexão com o celular.'));
+  });
+  peer.on('error',(err)=>{setConnectionStatus(`Falha ao criar sala: ${err.message}`);$('createRoomBtn').disabled=false;});
+  peer.on('disconnected',()=>setConnectionStatus('Conexão ao servidor perdida. Tente criar outra sala.'));
+}
+function initPhoneMode(roomCode) {
+  $('desktopApp').classList.add('hidden');$('phoneApp').classList.remove('hidden');
+  const status=$('phoneStatus');const startBtn=$('startPhoneMicBtn');
+  if(!/^[A-Z0-9]{6,12}$/.test(roomCode)){status.textContent='Código da sala inválido.';return;}
+  if(typeof window.Peer!=='function') {status.textContent='Biblioteca de conexão não carregou. Verifique a internet e recarregue.';return;}
+  const phonePeer=new window.Peer(undefined,{debug:0});
+  let connection=null;let stopFn=null;
+  phonePeer.on('open',()=>{
+    status.textContent='Conectando ao MacBook…';
+    connection=phonePeer.connect('kmundo-'+roomCode,{reliable:false});
+    connection.on('open',()=>{status.textContent='✓ Conectado ao MacBook';status.classList.add('good');startBtn.disabled=false;});
+    connection.on('close',()=>{status.classList.remove('good');status.textContent='Conexão encerrada. Reabra o link no celular.';startBtn.disabled=true;if(stopFn)stopFn();});
+    connection.on('error',(err)=>{status.textContent='Erro de conexão: '+err.message;});
+  });
+  phonePeer.on('error',err=>{status.textContent=`Não foi possível conectar (${err.type||'erro'}). Confira o código e tente novamente.`;});
+  startBtn.addEventListener('click',async()=>{
+    if(stopFn){stopFn();stopFn=null;startBtn.textContent='Ativar microfone';setText('phoneMeterText','Microfone pausado');return;}
+    startBtn.disabled=true;
+    try {
+      stopFn=await startMicAnalysis(m=>{
+        if(connection?.open)connection.send({type:'pitch',hz:m.hz,clarity:m.clarity,rms:m.rms,voice:m.voice});
+        setText('phoneNote',m.voice?noteName(m.hz):'--');
+        setText('phoneMeterText',m.voice?'Sua voz está sendo detectada':'Aproxime o celular da boca');
+        $('phoneMeterFill').style.width=Math.min(100,Math.round(m.rms*400))+'%';
+        $('phoneVoiceIndicator').style.transform=`scale(${1+Math.min(.23,m.rms*.9)})`;
+      });
+      startBtn.textContent='Pausar microfone';
+    } catch(e){status.classList.remove('good');status.textContent='Não foi possível abrir o microfone: '+e.message;}
+    finally {startBtn.disabled=false;}
+  });
+  window.addEventListener('pagehide',()=>{if(stopFn)stopFn();phonePeer.destroy();});
+}
+function initDesktop() {
+  renderChips();renderFavorites();
+  document.querySelectorAll('[data-region]').forEach(b=>b.addEventListener('click',()=>{
+    region=b.dataset.region;document.querySelectorAll('[data-region]').forEach(t=>t.classList.toggle('active',t===b));renderChips();
+  }));
+  $('searchForm').addEventListener('submit',e=>{e.preventDefault();runSearch($('searchInput').value);});
+  $('directBtn').addEventListener('click',()=>{
+    const id=extractYouTubeId($('directInput').value);
+    if(!id){notify('Link inválido. Use uma URL de vídeo do YouTube ou um ID de 11 caracteres.');return;}
+    selectSong({id,title:'Vídeo selecionado do YouTube',channel:'Karaokê online'});
+    notify('Vídeo carregado. Se não reproduzir, o proprietário pode ter bloqueado a incorporação.',true);
+  });
+  $('favoriteCurrentBtn').addEventListener('click',()=>{
+    if(!current)return;
+    if(favorites.some(s=>s.id===current.id))favorites=favorites.filter(s=>s.id!==current.id);
+    else favorites.unshift(current);
+    localStorage.setItem('karaoke-favorites',JSON.stringify(favorites.slice(0,75)));
+    $('favoriteCurrentBtn').textContent=favorites.some(s=>s.id===current.id)?'♥':'♡';renderFavorites();
+  });
+  $('resetScoreBtn').addEventListener('click',resetScore);
+  $('localMicBtn').addEventListener('click',async()=>{
+    if(localMicStop){localMicStop();localMicStop=null;$('localMicBtn').textContent='🎙 Microfone do Mac';return;}
+    try{localMicStop=await startMicAnalysis(consumeMeasurement);$('localMicBtn').textContent='◼ Parar microfone do Mac';}
+    catch(e){alert('Não foi possível abrir o microfone: '+e.message);}
+  });
+  $('createRoomBtn').addEventListener('click',createRoom);
+  $('copyRoomBtn').addEventListener('click',async()=>{
+    try{await navigator.clipboard.writeText(roomUrl(room));$('copyRoomBtn').textContent='Link copiado ✓';}catch{$('copyRoomBtn').textContent='Não foi possível copiar';}
+  });
+  $('settingsBtn').addEventListener('click',()=>{$('apiKeyInput').value=apiKey;$('settingsDialog').showModal();});
+  $('settingsForm').addEventListener('submit',e=>{e.preventDefault();apiKey=$('apiKeyInput').value.trim();if(apiKey)localStorage.setItem('karaoke-youtube-key',apiKey);else localStorage.removeItem('karaoke-youtube-key');$('settingsDialog').close();notify(apiKey?'Pesquisa integrada configurada. Escolha uma música.':'Chave removida. Use um link direto para reproduzir.',Boolean(apiKey));});
+  $('clearKeyBtn').addEventListener('click',()=>{$('apiKeyInput').value='';apiKey='';localStorage.removeItem('karaoke-youtube-key');$('settingsDialog').close();notify('Chave removida. A busca integrada precisa de uma chave válida.');});
+  if(apiKey)notify('Pesquisa integrada configurada. Escolha uma música para começar.',true);
+  const params=new URLSearchParams(location.search);
+  const initialId=extractYouTubeId(params.get('v'));
+  if(initialId)selectSong({id:initialId,title:'Música compartilhada',channel:'YouTube'});
+  window.addEventListener('pagehide',()=>{if(localMicStop)localMicStop();if(peer)peer.destroy();});
+}
+const remoteCode=new URLSearchParams(location.search).get('remote');
+if(remoteCode) initPhoneMode(remoteCode.toUpperCase()); else initDesktop();
