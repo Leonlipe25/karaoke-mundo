@@ -41,7 +41,7 @@ function nearestNoteIndex(notes, timeSec) {
   return Math.abs(notes[a].t-timeSec)<Math.abs(notes[b].t-timeSec)?a:b;
 }
 export function addMelodyMeasurement(state, notes, timeSec, measurement) {
-  if(!state?.matches||!validMelodyGuide(notes)||!Number.isFinite(timeSec))return;
+  if(!state?.matches||!Array.isArray(notes)||notes.length<20||!Number.isFinite(timeSec))return;
   if(measurement?.voice!==true||!Number.isFinite(measurement.hz)||
      measurement.hz<75||measurement.hz>950||measurement.clarity<0.70)return;
   const i=nearestNoteIndex(notes,timeSec);
@@ -50,13 +50,13 @@ export function addMelodyMeasurement(state, notes, timeSec, measurement) {
   // A oitava é tolerada parcialmente em vozes de tessituras diferentes.
   const octave=Math.min(Math.abs(diff-12),Math.abs(diff-24));
   const error=octave<diff ? octave : diff;
-  const octavePenalty=octave<diff?.88:1;
-  const quality=error<=.5?1:error<=1?.8:error<=2?.5:error<=3?.2:0;
+  const octavePenalty = octave < diff ? 0.88 : 1;
+  const quality = error <= 0.5 ? 1 : error <= 1 ? 0.8 : error <= 2 ? 0.5 : error <= 3 ? 0.2 : 0;
   const result=quality*octavePenalty;
   state.matches.set(i,Math.max(result,state.matches.get(i)||0));
 }
 export function calculateMelodyAccuracy(state,notes,atTime) {
-  if(!state?.matches||!validMelodyGuide(notes)||!Number.isFinite(atTime))return null;
+  if(!state?.matches||!Array.isArray(notes)||notes.length<20||!Number.isFinite(atTime))return null;
   let expected=0,sum=0;
   for(let i=0;i<notes.length&&notes[i].t<=atTime+GUIDE_WINDOW_SEC;i++){
     expected++;
