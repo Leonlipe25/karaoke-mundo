@@ -20,6 +20,14 @@ let localMicStop = null;
 let lastPitch = null;
 let lastRemotePitchAt = 0;
 let searchAbort = null;
+const loadQueue = () => safeJsonParse(localStorage.getItem('borake-song-queue'), [])
+  .filter(song => extractYouTubeId(song?.id) && typeof song.title === 'string').slice(0,30);
+let songQueue = loadQueue();
+let stageMode = false;
+let lastCheerAt = 0;
+let cheerTimer = null;
+let confettiTimer = null;
+const motionReduced = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
 // Catálogo inicial de vídeos identificados no YouTube: não requer chave de API.
 const starterSongs = [
@@ -61,15 +69,110 @@ function renderChips() {
   }));
 }
 function makeSongCard(song) {
-  const b = document.createElement('button'); b.type = 'button'; b.className = 'song-card';
+  const card = document.createElement('div'); card.className = 'song-card';
+  const open = document.createElement('button'); open.type = 'button'; open.className = 'song-open';
+  open.setAttribute('aria-label', 'Cantar ' + song.title);
   const image = document.createElement('img');
   image.src = `https://i.ytimg.com/vi/${song.id}/mqdefault.jpg`;
   image.alt = ''; image.loading = 'lazy'; image.referrerPolicy = 'no-referrer';
-  const box = document.createElement('span'); box.style.minWidth = '0';
+  const box = document.createElement('span'); box.className='song-description';
   const title = document.createElement('strong'); title.textContent = song.title;
   const channel = document.createElement('small'); channel.textContent = song.channel || 'YouTube';
-  box.append(title, channel); b.append(image, box); b.addEventListener('click', () => selectSong(song));
-  return b;
+  box.append(title,channel);open.append(image,box);
+  open.addEventListener('click',() => selectSong(song));
+  const add = document.createElement('button');
+  add.className = 'queue-add'; add.type = 'button'; add.textContent = '+ Fila';
+  add.title = 'Adicionar esta música à fila';
+  add.setAttribute('aria-label','Adicionar à fila: '+song.title);
+  add.addEventListener('click',()=>{ if(addToQueue(song)) {add.textContent='✓ Na fila'; setTimeout(()=>{if(add.isConnected)add.textContent='+ Fila';},1500);} });
+  card.append(open,add);
+  return card;
+}
+function saveQueue() {
+  localStorage.setItem('borake-song-queue', JSON.stringify(songQueue));
+}
+function addToQueue(song) {
+  if (!song || !extractYouTubeId(song.id)) return false;
+  if (songQueue.length >= 30) {notify('Fila cheia (30 músicas). Remova uma para adicionar outra.'); return false;}
+  songQueue.push({id:song.id,title:String(song.title).slice(0,180),channel:String(song.channel||'YouTube').slice(0,100)});
+  saveQueue(); renderQueue(); return true;
+}
+function renderQueue() {
+  const root = $('songQueue'); if(!root) return;
+  root.replaceChildren();
+  setText('queueCount', songQueue.length + (songQueue.length === 1 ? ' na fila' : ' na fila'));
+  $('playQueueBtn').disabled = songQueue.length === 0;
+  $('clearQueueBtn').disabled = songQueue.length === 0;
+  $('playNextFromFinalBtn').disabled = songQueue.length === 0;
+  $('playNextFromFinalBtn').classList.toggle('hidden',songQueue.length===0);
+  if(!songQueue.length) {
+    const p = document.createElement('p');p.className='queue-empty';p.textContent='Sua próxima música começa aqui. Toque em “+ Fila” nos resultados.';
+    root.append(p);return;
+  }
+  songQueue.forEach((song,index)=>{
+    const item=document.createElement('div');item.className='queue-item';
+    const pos=document.createElement('span');pos.className='queue-pos';pos.textContent=String(index+1).padStart(2,'0');
+    const info=document.createElement('div');info.className='queue-song';
+    const title=document.createElement('strong');title.textContent=song.title;
+    const channel=document.createElement('small');channel.textContent=song.channel||'YouTube';
+    info.append(title,channel);
+    const actions=document.createElement('div');actions.className='queue-item-actions';
+    const play=document.createElement('button');play.type='button';play.title='Cantar agora';play.setAttribute('aria-label','Cantar agora '+song.title);play.textContent='▶';
+    play.addEventListener('click',()=>playQueuedSong(index));
+    const remove=document.createElement('button');remove.type='button';remove.title='Remover da fila';remove.setAttribute('aria-label','Remover '+song.title+' da fila');remove.textContent='×';
+    remove.addEventListener('click',()=>{songQueue.splice(index,1);saveQueue();renderQueue();});
+    actions.append(play,remove);item.append(pos,info,actions);root.append(item);
+  });
+}
+function playQueuedSong(index=0) {
+  if(!songQueue.length||index<0||index>=songQueue.length)return;
+  const [song]=songQueue.splice(index,1);saveQueue();renderQueue();
+  selectSong(song);
+}
+function setStageMode(enabled) {
+  stageMode = Boolean(enabled);
+  document.body.classList.toggle('stage-mode',stageMode);
+  $('toggleStageBtn').textContent=stageMode?'↙ Voltar à biblioteca':'⛶ Ampliar palco';
+  $('headerStageBtn').textContent=stageMode?'▦ Biblioteca':'◩ Modo palco';
+  $('fullscreenBtn').classList.toggle('hidden',!stageMode || !document.documentElement.requestFullscreen);
+  if(stageMode) window.scrollTo({top:0,behavior:motionReduced()?'instant':'smooth'});
+}
+function focusPhonePanel() {
+  if(stageMode)setStageMode(false);
+  const panel=$('phonePanel');panel.scrollIntoView({behavior:motionReduced()?'instant':'smooth',block:'center'});
+  if(!room && !peer) createRoom();
+}
+function announceCheer(points) {
+  if(finished || points<72 || score.vocalFrames<18 || Date.now()-lastCheerAt<14000)return;
+  lastCheerAt=Date.now();
+  const el=$('scoreCheer');
+  el.textContent=points>=90?'VOCÊ ARRASOU! 🌟':points>=82?'MANDOU BEM! ✨':'BOA! 🎶';
+  el.classList.remove('hidden');
+  el.classList.remove('cheer-pop');
+  void el.offsetWidth;
+  el.classList.add('cheer-pop');
+  clearTimeout(cheerTimer);
+  cheerTimer=setTimeout(()=>el.classList.add('hidden'),1600);
+}
+function celebrateFinal(points) {
+  const layer=$('confettiLayer');
+  layer.replaceChildren();
+  if(points<60 || motionReduced()) return;
+  const colors=['#ff65b6','#7deadd','#af83ff','#ffdb75','#ffffff'];
+  const frag=document.createDocumentFragment();
+  for(let i=0;i<28;i++){
+    const conf=document.createElement('span');
+    conf.className='confetti-piece';
+    conf.style.left=(3+(i*31)%94)+'%';
+    conf.style.backgroundColor=colors[i%colors.length];
+    conf.style.animationDelay=(i%7)*.065+'s';
+    conf.style.animationDuration=(1.6+(i%4)*.24)+'s';
+    conf.style.setProperty('--drift',((i%2?1:-1)*(20+i%6*13))+'px');
+    frag.append(conf);
+  }
+  layer.append(frag);
+  clearTimeout(confettiTimer);
+  confettiTimer=setTimeout(()=>layer.replaceChildren(),3500);
 }
 function renderResults(songs, title) {
   const container = $('results'); container.replaceChildren();
@@ -84,8 +187,12 @@ function renderFavorites() {
   const root = $('favorites'); root.replaceChildren();
   if (!favorites.length) { const p = document.createElement('p'); p.className = 'muted'; p.textContent = 'Suas músicas favoritas aparecem aqui.'; root.append(p); return; }
   root.append(...favorites.map(s => {
+    const wrapper=document.createElement('div');wrapper.className='favorite-wrap';
     const b = document.createElement('button'); b.className = 'favorite-item'; b.textContent = `♥ ${s.title}`;
-    b.addEventListener('click', () => selectSong(s)); return b;
+    b.addEventListener('click', () => selectSong(s));
+    const add=document.createElement('button');add.className='favorite-queue';add.type='button';add.textContent='+ Fila';
+    add.title='Adicionar à fila';add.addEventListener('click',()=>addToQueue(s));
+    wrapper.append(b,add);return wrapper;
   }));
 }
 function renderStarterCatalog(query = '') {
@@ -138,6 +245,7 @@ function selectSong(song) {
   $('favoriteCurrentBtn').textContent = favorites.some(s=>s.id===song.id)?'♥':'♡';
   $('playerPlaceholder').classList.add('hidden');
   resetScore();
+  setStageMode(true);
   const url = new URL(window.location.href); url.searchParams.set('v',song.id);
   window.history.replaceState(null,'',url.toString());
   if (playerReady && player) { player.loadVideoById(song.id); }
@@ -147,7 +255,7 @@ function selectSong(song) {
 function createPlayer(videoId) {
   if (player) { if (playerReady) player.loadVideoById(videoId); return; }
   player = new window.YT.Player('yt-player',{width:'100%',height:'100%',videoId,playerVars:{playsinline:1,rel:0,origin:location.origin},events:{
-    onReady:()=>{playerReady=true;},
+    onReady:()=>{playerReady=true;if(current?.id && current.id!==videoId)player.loadVideoById(current.id);},
     onStateChange:(ev)=>{
       if (ev.data === window.YT.PlayerState.ENDED) {
         finishPresentation();
@@ -173,6 +281,11 @@ function resetScore() {
   setText('pitchNote','♪ Aguardando voz');
   setText('voiceLevel','♫ Sem sinal');
   $('finalResult').classList.add('hidden');
+  $('scoreCheer').classList.add('hidden');
+  $('confettiLayer').replaceChildren();
+  lastCheerAt=0;
+  clearTimeout(cheerTimer);
+  clearTimeout(confettiTimer);
 }
 
 function finishPresentation() {
@@ -182,6 +295,7 @@ function finishPresentation() {
   const result = buildFinalResult(score);
   $('finalResult').classList.remove('hidden');
   setText('scoreLabel', 'Apresentação encerrada');
+  renderQueue();
   if (!result.enoughVoice) {
     setText('finalScoreNum','--');
     setText('finalScoreMessage','Não detectamos canto suficiente para gerar uma nota. Tente novamente com o microfone ativado.');
@@ -195,6 +309,7 @@ function finishPresentation() {
   setText('finalScoreMessage', points >= 85 ? 'Mandou muito bem! 🎤' : points >= 70 ? 'Boa apresentação!' : points >= 50 ? 'Valeu o show! Continue praticando.' : 'A próxima música pode render uma nota maior!');
   $('scoreNum').innerHTML=`${points}<small>/100</small>`;
   $('scoreMeter').style.width=points+'%';
+  celebrateFinal(points);
 }
 function activeMicSource(now = Date.now()) {
   return selectedMicSource({
@@ -236,6 +351,7 @@ function consumeMeasurement(m, origin = 'mac') {
   $('scoreNum').innerHTML=`${points}<small>/100</small>`;
   $('scoreMeter').style.width=points+'%';
   setText('scoreLabel',points >= 85?'Arrasou! ✨':points >= 70?'Muito bom!':'Continue cantando!');
+  announceCheer(points);
 }
 async function startMicAnalysis(onMeasurement) {
   if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microfone exige HTTPS (ou localhost) e navegador compatível.');
@@ -331,7 +447,7 @@ function initPhoneMode(roomCode) {
   window.addEventListener('pagehide',()=>{if(stopFn)stopFn();phonePeer.destroy();});
 }
 function initDesktop() {
-  renderChips();renderFavorites();renderStarterCatalog();
+  renderChips();renderFavorites();renderQueue();renderStarterCatalog();
   updateMicSourceLabel();
   // Atualiza aviso inclusive quando o celular simplesmente para de transmitir.
   const sourceIndicatorTimer=setInterval(updateMicSourceLabel,750);
@@ -339,6 +455,26 @@ function initDesktop() {
     region=b.dataset.region;document.querySelectorAll('[data-region]').forEach(t=>t.classList.toggle('active',t===b));renderChips();renderStarterCatalog($('searchInput').value);
   }));
   $('searchForm').addEventListener('submit',e=>{e.preventDefault();runSearch($('searchInput').value);});
+  $('heroSearchBtn').addEventListener('click',()=>{$('songLibrary').scrollIntoView({behavior:motionReduced()?'instant':'smooth',block:'start'});$('searchInput').focus({preventScroll:true});});
+  $('heroPhoneBtn').addEventListener('click',focusPhonePanel);
+  $('headerConnectBtn').addEventListener('click',focusPhonePanel);
+  $('headerStageBtn').addEventListener('click',()=>setStageMode(!stageMode));
+  $('toggleStageBtn').addEventListener('click',()=>setStageMode(!stageMode));
+  $('fullscreenBtn').addEventListener('click',async()=>{
+    try {
+      if(document.fullscreenElement) await document.exitFullscreen();
+      else if(document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+    } catch {notify('O navegador não permitiu abrir a tela cheia. O modo palco continua disponível.');}
+  });
+  $('playQueueBtn').addEventListener('click',()=>playQueuedSong());
+  $('playNextFromFinalBtn').addEventListener('click',()=>playQueuedSong());
+  $('clearQueueBtn').addEventListener('click',()=>{songQueue=[];saveQueue();renderQueue();});
+  $('replayCurrentBtn').addEventListener('click',()=>{
+    if(!current || !playerReady || !player)return;
+    resetScore();player.seekTo(0,true);player.playVideo();
+  });
+  document.addEventListener('fullscreenchange',()=>{$('fullscreenBtn').textContent=document.fullscreenElement?'↙ Sair da tela cheia':'⛶ Tela cheia';});
+
   $('directBtn').addEventListener('click',()=>{
     const id=extractYouTubeId($('directInput').value);
     if(!id){notify('Link inválido. Use uma URL de vídeo do YouTube ou um ID de 11 caracteres.');return;}
