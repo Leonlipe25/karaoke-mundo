@@ -266,7 +266,7 @@ function decodeHtml(value) { const t = document.createElement('textarea'); t.inn
 // O computador é a fonte oficial do placar: o celular só exibe a nota recebida.
 function sendScoreToPhone(force = false) {
   if (!remoteConnection?.open) return;
-  const tune = melodyGuide && !recordingGuide && !guideJustRecorded ? calculateMelodyAccuracy(melodyAttempt,melodyGuide,lastMelodyTime) : null;
+  const tune = melodyMetrics(finished);
   const enoughVoice=score.vocalFrames>=10;
   const funPoints=enoughVoice?calculateFunScore(score):null;
   const combined=enoughVoice?blendFunAndMelody(funPoints,tune):null;
