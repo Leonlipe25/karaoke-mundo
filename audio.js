@@ -158,6 +158,16 @@ export function calculateFunScore(score) {
   return Math.round(Math.min(sampleCap, 100, Math.max(0, points)));
 }
 
+/**
+ * Retorna um retrato definitivo da avaliação no encerramento do vídeo.
+ * Não modifica o acumulador e não depende do tempo total do instrumental.
+ */
+export function buildFinalResult(score) {
+  const vocalFrames = Math.max(0, Number(score?.vocalFrames) || 0);
+  if (vocalFrames < 10) return { enoughVoice: false, points: null };
+  return { enoughVoice: true, points: calculateFunScore(score) };
+}
+
 export function extractYouTubeId(input) {
   const raw = String(input || '').trim();
   if (/^[\w-]{11}$/.test(raw)) return raw;
