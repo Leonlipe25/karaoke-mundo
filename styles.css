@@ -29,3 +29,44 @@
   color: #c5c5d6;
   font-size: .85rem;
 }
+
+
+/* Resultado final de cada música: aparece apenas após o evento ENDED do YouTube. */
+.final-result {
+  margin-top: 16px;
+  padding: 19px 20px 17px;
+  border: 1px solid rgba(255, 216, 112, .36);
+  border-radius: 19px;
+  background: linear-gradient(135deg, rgba(239, 70, 117, .18), rgba(253, 195, 77, .12));
+  text-align: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1);
+}
+.final-result.hidden { display: none !important; }
+.final-result-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: #f0c66b;
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .07em;
+}
+.final-result-score {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 9px;
+  margin: 10px auto 0;
+  color: #fff;
+}
+.final-result-score strong {
+  font-size: clamp(3rem, 7vw, 5rem);
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.final-result-score small { font-size: 1.1rem; color: #f2d898; }
+.final-result p { font-size: 1.08rem; font-weight: 650; margin: 10px 0; color: #fff; }
+.final-result-footnote { display: block; color: #d4c7d8; font-size: .75rem; }
