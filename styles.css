@@ -413,3 +413,18 @@ button:focus-visible,a:focus-visible {outline:2px solid #68e9df;outline-offset:3
 .phone-score-finished{border-color:#fedb82;background:linear-gradient(128deg,#5c2b60,#3a2c52);}
 .phone-score-finished #phoneScoreState{background:#cf9d3b;color:#201427;}
 @media(prefers-reduced-motion:reduce) {.phone-score-meter>div{transition:none;}}
+
+
+/* Afinação cronometrada a partir de guia de voz salvo localmente. */
+.melody-panel {
+  margin-top:14px;padding:17px 18px;
+  background:linear-gradient(125deg,#252c4b,#2e254a);
+  border:1px solid #5c72a480;border-radius:17px;
+}
+.melody-title{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.melody-title strong{font:800 15px 'Outfit',sans-serif;color:#ddf7fb;}
+.melody-score{font:900 17px 'Outfit',sans-serif;color:#5debd9;white-space:nowrap;}
+.melody-panel p{color:#ddd6ec;font-size:12px;line-height:1.55;margin:9px 0 12px;}
+.melody-actions{display:flex;flex-wrap:wrap;gap:8px;}
+.melody-actions .btn{font-size:11px;padding:9px 12px;}
+.melody-panel small{display:block;margin-top:12px;color:#b2aaca;font-size:10px;line-height:1.6;}
