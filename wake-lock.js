@@ -79,6 +79,13 @@ export function createScreenAwake({
 
   function visibilityChange() {
     if (!isVisible()) {
+      // Alguns WebKit/Safari liberam o bloqueio assincronamente; soltamos
+      // explicitamente e invalidamos requisições em andamento para evitar
+      // que um lock antigo seja considerado ativo ao voltar à aba.
+      revision++;
+      const previous = sentinel;
+      sentinel = null;
+      if (previous) void previous.release().catch(() => {});
       if (wanted) status('hidden');
       return;
     }
