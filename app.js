@@ -61,9 +61,19 @@ function searchTerms(query) {
   return `${query} karaoke playback lyrics`;
 }
 function renderChips() {
-  $('chips').replaceChildren(...chipsByRegion[region].map((word) => {
+  const genres = {
+    'Sertanejo':'🎸','Pagode':'🥁','MPB':'🎼','Forró':'🪗','Samba':'🎶',
+    'Rock nacional':'⚡','Pop internacional':'🎤','Rock clássico':'🤘',
+    'Anos 80':'🪩','Baladas':'💖','Reggaeton':'🔥','K-pop':'✨',
+    'Rock':'⚡',
+  };
+  $('chips').replaceChildren(...chipsByRegion[region].map((word, index) => {
     const b = document.createElement('button');
-    b.className = 'chip'; b.type = 'button'; b.textContent = word;
+    b.className = 'chip genre-chip'; b.type = 'button';
+    const icon = document.createElement('span'); icon.className='genre-icon';icon.textContent=genres[word]||'♫';
+    const label = document.createElement('span');label.className='genre-name';label.textContent=word;
+    b.append(icon,label);
+    b.style.setProperty('--genre-index', String(index));
     b.addEventListener('click', () => { $('searchInput').value = word; runSearch(word); });
     return b;
   }));
@@ -135,11 +145,11 @@ function setStageMode(enabled) {
   $('toggleStageBtn').textContent=stageMode?'↙ Voltar à biblioteca':'⛶ Ampliar palco';
   $('headerStageBtn').textContent=stageMode?'▦ Biblioteca':'◩ Modo palco';
   $('fullscreenBtn').classList.toggle('hidden',!stageMode || !document.documentElement.requestFullscreen);
-  if(stageMode) window.scrollTo({top:0,behavior:motionReduced()?'instant':'smooth'});
+  if(stageMode) window.scrollTo({top:0,behavior:motionReduced()?'auto':'smooth'});
 }
 function focusPhonePanel() {
   if(stageMode)setStageMode(false);
-  const panel=$('phonePanel');panel.scrollIntoView({behavior:motionReduced()?'instant':'smooth',block:'center'});
+  const panel=$('phonePanel');panel.scrollIntoView({behavior:motionReduced()?'auto':'smooth',block:'center'});
   if(!room && !peer) createRoom();
 }
 function announceCheer(points) {
@@ -216,7 +226,7 @@ function renderStarterCatalog(query = '') {
   box.append(message,link,tip);
   results.prepend(box);
   setText('resultsCount',songs.length+' pré-selecionadas');
-  notify('Catálogo inicial disponível. A pesquisa geral usa o servidor do Karaokê Mundo.',true);
+  notify('Catálogo inicial disponível. A busca geral usa o servidor do BoraKê.',true);
 }
 
 async function runSearch(query) {
@@ -455,7 +465,7 @@ function initDesktop() {
     region=b.dataset.region;document.querySelectorAll('[data-region]').forEach(t=>t.classList.toggle('active',t===b));renderChips();renderStarterCatalog($('searchInput').value);
   }));
   $('searchForm').addEventListener('submit',e=>{e.preventDefault();runSearch($('searchInput').value);});
-  $('heroSearchBtn').addEventListener('click',()=>{$('songLibrary').scrollIntoView({behavior:motionReduced()?'instant':'smooth',block:'start'});$('searchInput').focus({preventScroll:true});});
+  $('heroSearchBtn').addEventListener('click',()=>{$('songLibrary').scrollIntoView({behavior:motionReduced()?'auto':'smooth',block:'start'});$('searchInput').focus({preventScroll:true});});
   $('heroPhoneBtn').addEventListener('click',focusPhonePanel);
   $('headerConnectBtn').addEventListener('click',focusPhonePanel);
   $('headerStageBtn').addEventListener('click',()=>setStageMode(!stageMode));
