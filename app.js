@@ -698,8 +698,7 @@ function initPhoneMode(roomCode) {
       startBtn.textContent='Pausar microfone';
       refreshSpeechButton();
     } catch(e){void keepAwake.stop();status.classList.remove('good');status.textContent='Não foi possível abrir o microfone: '+e.message;}
-    refreshSpeechButton();
-    finally {startBtn.disabled=false;}
+    finally {startBtn.disabled=false;refreshSpeechButton();}
   });
   window.addEventListener('pagehide',()=>{pageClosed=true;stopSpeech();clearTimeout(reconnectTimer);clearTimeout(disconnectTimer);if(stopFn)stopFn();stopFn=null;void keepAwake.stop();document.removeEventListener('visibilitychange',handleVisibility);phonePeer.destroy();});
 }
