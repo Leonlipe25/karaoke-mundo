@@ -3,6 +3,7 @@ import { selectedMicSource } from './mic-source.js';
 import { createScreenAwake } from './wake-lock.js';
 import { makeScoreSnapshot, validateScoreSnapshot } from './score-sync.js';
 import { buildMelodyGuide, validMelodyGuide, newMelodyAttempt, addMelodyMeasurement, calculateMelodyAccuracy, blendFunAndMelody } from './melody.js';
+import { persistentRoomCode, isValidRoomCode } from './room-code.js';
 
 const $ = (id) => document.getElementById(id);
 const safeJsonParse = (v, fallback) => { try { return JSON.parse(v) ?? fallback; } catch { return fallback; } };
@@ -504,8 +505,8 @@ async function startMicAnalysis(onMeasurement) {
 }
 function roomUrl(code){const url=new URL(window.location.href);url.search='';url.searchParams.set('remote',code);url.hash='';return url.toString();}
 function setConnectionStatus(label,connected=false){setText('connectionStatus',label);$('connectionStatus').classList.toggle('connected',connected);}
-function generateRoomCode(){const a=new Uint8Array(4); crypto.getRandomValues(a);return Array.from(a,n=>(n%32).toString(32).toUpperCase()).join('') + Math.floor(Math.random()*90+10);}
-function createRoom() {
+function generateRoomCode(rotate=false){return persistentRoomCode({storage:localStorage,randomBytes:n=>crypto.getRandomValues(new Uint8Array(n)),rotate});}
+function createRoom(rotate=false) {
   if(typeof window.Peer!=='function') {setConnectionStatus('Não foi possível carregar a conexão remota. Verifique internet.');return;}
   if(peer){try{peer.destroy();}catch{}peer=null;}
   remoteConnection=null;
@@ -513,19 +514,19 @@ function createRoom() {
   lastScoreSyncPayload='';
   lastScoreSyncAt=0;
   updateMicSourceLabel();
-  room=generateRoomCode();
+  room=generateRoomCode(rotate);
   peer=new window.Peer('kmundo-'+room,{debug:0});
   setConnectionStatus('Criando sala…');
   $('createRoomBtn').disabled=true;
   peer.on('open',()=>{
     setConnectionStatus('Sala ativa. Aguardando celular…');
     $('roomDetails').classList.remove('hidden');
-    setText('roomCode',room);
+    setText('roomCode',room.slice(0,8)+'…'+room.slice(-6));
     $('qrCode').replaceChildren();
     if(window.QRCode) new window.QRCode($('qrCode'),{text:roomUrl(room),width:106,height:106,correctLevel:window.QRCode.CorrectLevel.M});
     else $('qrCode').textContent='QR indisponível';
     $('createRoomBtn').disabled=false;
-    $('createRoomBtn').textContent='Gerar outra sala ↻';
+    $('createRoomBtn').textContent='Trocar QR (desvincula celular) ↻';
   });
   peer.on('connection',conn=>{
     if(remoteConnection?.open) {conn.on('open',()=>conn.close());return;}
@@ -570,7 +571,7 @@ function initPhoneMode(roomCode) {
   const handleVisibility=()=>{keepAwake.visibilityChange();};
   document.addEventListener('visibilitychange',handleVisibility);
 
-  if(!/^[A-Z0-9]{6,12}$/.test(roomCode)){status.textContent='Código da sala inválido.';return;}
+  if(!isValidRoomCode(roomCode)){status.textContent='Código antigo ou inválido. Escaneie o QR novo uma única vez para vincular este navegador.';return;}
   if(typeof window.Peer!=='function') {status.textContent='Biblioteca de conexão não carregou. Verifique a internet e recarregue.';return;}
   const phonePeer=new window.Peer(undefined,{debug:0});
   let connection=null;let stopFn=null;
@@ -702,7 +703,7 @@ function initDesktop() {
     try{localMicStop=await startMicAnalysis(m=>consumeMeasurement(m,'mac'));updateMicSourceLabel();$('localMicBtn').textContent='◼ Parar microfone do Mac';}
     catch(e){alert('Não foi possível abrir o microfone: '+e.message);}
   });
-  $('createRoomBtn').addEventListener('click',createRoom);
+  $('createRoomBtn').addEventListener('click',()=>createRoom(true));
   $('copyRoomBtn').addEventListener('click',async()=>{
     try{await navigator.clipboard.writeText(roomUrl(room));$('copyRoomBtn').textContent='Link copiado ✓';}catch{$('copyRoomBtn').textContent='Não foi possível copiar';}
   });
@@ -711,6 +712,9 @@ function initDesktop() {
   $('clearKeyBtn').addEventListener('click',()=>{localStorage.removeItem('karaoke-youtube-key');$('settingsDialog').close();notify('Chave antiga removida deste navegador. A pesquisa agora usa o servidor.',true);});
   const params=new URLSearchParams(location.search);
   const initialId=extractYouTubeId(params.get('v'));
+  // O QR pertence a este navegador, não à sessão atual. Ao reabrir, restaura
+  // automaticamente a mesma sala para o celular usar o link salvo.
+  if(typeof window.Peer==='function')createRoom(false);
   if(initialId)selectSong({id:initialId,title:'Música compartilhada',channel:'YouTube'});
   window.addEventListener('pagehide',()=>{clearInterval(sourceIndicatorTimer);if(localMicStop)localMicStop();if(peer)peer.destroy();});
 }
