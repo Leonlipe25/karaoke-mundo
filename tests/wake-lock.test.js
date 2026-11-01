@@ -83,3 +83,27 @@ test('falha do sistema é tratada sem desligar microfone', async () => {
   assert.equal(changes.at(-1),'unavailable');
   await manager.stop();
 });
+
+test('ao ocultar a aba, solta o lock e o recupera ao voltar', async () => {
+  let visible=true;
+  const locks=[];
+  const changes=[];
+  const manager=createScreenAwake({
+    wakeLock:{request:async ()=>{const l=lock();locks.push(l);return l;}},
+    isVisible:()=>visible,
+    onStatus:x=>changes.push(x),
+  });
+  await manager.start();
+  assert.equal(locks.length,1);
+  visible=false;
+  manager.visibilityChange();
+  await Promise.resolve();
+  assert.equal(locks[0].released,true);
+  assert.equal(changes.at(-1),'hidden');
+  visible=true;
+  manager.visibilityChange();
+  await Promise.resolve();await Promise.resolve();
+  assert.equal(locks.length,2);
+  assert.equal(changes.at(-1),'active');
+  await manager.stop();
+});
