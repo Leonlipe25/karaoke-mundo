@@ -352,3 +352,20 @@ button:focus-visible,a:focus-visible {outline:2px solid #68e9df;outline-offset:3
   .qr {width:128px;height:128px;flex-basis:128px;}
 }
 @media(prefers-reduced-motion:reduce){.genre-chip{transition:none;}}
+
+
+/* Tela sempre ativa no modo microfone, com estado explícito para Safari/Chrome. */
+.phone-wake-control{
+  margin:12px 0 0;
+  padding:12px 14px;
+  background:#2c2747;
+  border:1px solid #59497c;
+  border-radius:14px;
+}
+.phone-wake-status{
+  color:#e9deff;
+  font-size:12px;
+  line-height:1.55;
+  text-align:left;
+}
+.phone-wake-retry{width:100%;margin-top:10px;font-size:12px;}
