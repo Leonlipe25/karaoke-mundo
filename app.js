@@ -2,6 +2,7 @@ import { estimateVoice, noteName, newScore, addScoreFrame, calculateFunScore, ex
 import { selectedMicSource } from './mic-source.js';
 import { createScreenAwake } from './wake-lock.js';
 import { makeScoreSnapshot, validateScoreSnapshot } from './score-sync.js';
+import { buildMelodyGuide, validMelodyGuide, newMelodyAttempt, addMelodyMeasurement, calculateMelodyAccuracy, blendFunAndMelody } from './melody.js';
 
 const $ = (id) => document.getElementById(id);
 const safeJsonParse = (v, fallback) => { try { return JSON.parse(v) ?? fallback; } catch { return fallback; } };
@@ -24,6 +25,12 @@ let lastRemotePitchAt = 0;
 let searchAbort = null;
 let lastScoreSyncAt = 0;
 let lastScoreSyncPayload = '';
+let melodyGuide = null;
+let melodyAttempt = newMelodyAttempt();
+let recordingGuide = false;
+let guideSamples = [];
+let lastMelodyTime = 0;
+let melodyFinalPoints = null;
 const loadQueue = () => {
   const saved = safeJsonParse(localStorage.getItem('borake-song-queue'), []);
   return (Array.isArray(saved) ? saved : [])
@@ -257,7 +264,12 @@ function decodeHtml(value) { const t = document.createElement('textarea'); t.inn
 // O computador é a fonte oficial do placar: o celular só exibe a nota recebida.
 function sendScoreToPhone(force = false) {
   if (!remoteConnection?.open) return;
-  const snapshot = makeScoreSnapshot({score,current,playing,finished});
+  const tune = melodyGuide && !recordingGuide ? calculateMelodyAccuracy(melodyAttempt,melodyGuide,lastMelodyTime) : null;
+  const enoughVoice=score.vocalFrames>=10;
+  const funPoints=enoughVoice?calculateFunScore(score):null;
+  const combined=enoughVoice?blendFunAndMelody(funPoints,tune):null;
+  const snapshot = makeScoreSnapshot({score,current,playing,finished,
+    overridePoints:combined,melodyPoints:tune?.points??null});
   const signature = JSON.stringify(snapshot);
   const now = Date.now();
   if (!force && (signature === lastScoreSyncPayload || now - lastScoreSyncAt < 450)) return;
@@ -269,15 +281,71 @@ function sendScoreToPhone(force = false) {
     // A atualização do placar é opcional; a falha nunca interrompe o áudio.
   }
 }
+function guideStorageKey(id) { return 'borake-guide-v1-'+id; }
+function loadMelodyGuide(id) {
+  try {
+    const payload = safeJsonParse(localStorage.getItem(guideStorageKey(id)),null);
+    return validMelodyGuide(payload?.notes) ? payload.notes : null;
+  } catch { return null; }
+}
+function storeMelodyGuide(id,notes) {
+  try {
+    localStorage.setItem(guideStorageKey(id),JSON.stringify({version:1,notes}));
+    return true;
+  } catch {return false;}
+}
+function updateMelodyPanel() {
+  const available=Boolean(melodyGuide);
+  $('deleteMelodyGuideBtn').classList.toggle('hidden',!available);
+  $('recordMelodyGuideBtn').textContent=recordingGuide?'■ Finalizar guia':'🎙 '+(available?'Regravar guia':'Gravar guia desta música');
+  if(recordingGuide) {
+    setText('melodyStatus','🔴 Gravando notas do guia conforme você canta. Ao terminar a música, ele será salvo neste navegador.');
+    return;
+  }
+  if(available) {
+    setText('melodyStatus','✅ Guia salvo para este vídeo. Na próxima tentativa sua afinação será comparada com as notas do guia.');
+  } else {
+    setText('melodyStatus','Sem referência musical nesta música. A nota continua recreativa até você gravar um guia.');
+    setText('melodyScoreNum','--/100');
+  }
+}
+function finishGuide() {
+  if(!recordingGuide)return false;
+  recordingGuide=false;
+  const notes=buildMelodyGuide(guideSamples);
+  guideSamples=[];
+  if(notes && current && storeMelodyGuide(current.id,notes)) {
+    melodyGuide=notes;
+    setText('melodyStatus','✅ Guia gravado com '+notes.length+' pontos de nota. Repita o vídeo para testar a afinação.');
+    setText('melodyScoreNum','--/100');
+    updateMelodyPanel();
+    return true;
+  }
+  setText('melodyStatus','⚠️ Guia não salvo. Cante ao menos alguns segundos com microfone ativo durante o vídeo.');
+  updateMelodyPanel();
+  return false;
+}
+function videoTime() {
+  try { const t=playerReady&&player?player.getCurrentTime():0; return Number.isFinite(t)?t:0; }
+  catch {return 0;}
+}
+function melodyMetrics(final=false) {
+  if(!melodyGuide || recordingGuide)return null;
+  const t=final?melodyGuide.at(-1).t+1:Math.max(lastMelodyTime,videoTime());
+  return calculateMelodyAccuracy(melodyAttempt,melodyGuide,t);
+}
 function selectSong(song) {
   if (!song || !extractYouTubeId(song.id)) return;
+  recordingGuide=false;guideSamples=[];
   current = song;
   playing = false; // não somar medições antes de a nova música realmente tocar
   setText('currentSong',song.title);
   setText('currentArtist',song.channel || 'Vídeo do YouTube');
   $('favoriteCurrentBtn').textContent = favorites.some(s=>s.id===song.id)?'♥':'♡';
   $('playerPlaceholder').classList.add('hidden');
+  melodyGuide=loadMelodyGuide(song.id);
   resetScore();
+  updateMelodyPanel();
   setStageMode(true);
   const url = new URL(window.location.href); url.searchParams.set('v',song.id);
   window.history.replaceState(null,'',url.toString());
@@ -308,12 +376,16 @@ function createPlayer(videoId) {
 window.onYouTubeIframeAPIReady = () => { if(current) createPlayer(current.id); };
 function resetScore() {
   score = newScore();
+  melodyAttempt=newMelodyAttempt();
+  lastMelodyTime=0;
+  melodyFinalPoints=null;
   finished = false;
   setText('scoreNum','--');
   setText('scoreLabel','Pronto para cantar');
   $('scoreMeter').style.width='0%';
   setText('pitchNote','♪ Aguardando voz');
   setText('voiceLevel','♫ Sem sinal');
+  setText('melodyScoreNum','--/100');
   $('finalResult').classList.add('hidden');
   $('scoreCheer').classList.add('hidden');
   $('confettiLayer').replaceChildren();
@@ -325,24 +397,33 @@ function resetScore() {
 
 function finishPresentation() {
   if (finished || !current) return;
-  playing = false;
-  finished = true;
-  const result = buildFinalResult(score);
+  playing=false;
+  const wasRecording=recordingGuide;
+  if(wasRecording)finishGuide();
+  finished=true;
+  const result=buildFinalResult(score);
+  const melody=wasRecording?null:melodyMetrics(true);
+  melodyFinalPoints=melody?.points??null;
   $('finalResult').classList.remove('hidden');
-  setText('scoreLabel', 'Apresentação encerrada');
+  setText('scoreLabel','Apresentação encerrada');
   renderQueue();
-  if (!result.enoughVoice) {
+  if(!result.enoughVoice) {
     setText('finalScoreNum','--');
-    setText('finalScoreMessage','Não detectamos canto suficiente para gerar uma nota. Tente novamente com o microfone ativado.');
+    setText('finalScoreMessage','Não detectamos canto suficiente para avaliar. Verifique o microfone.');
     $('scoreNum').innerHTML='--<small>/100</small>';
     $('scoreMeter').style.width='0%';
     sendScoreToPhone(true);
     return;
   }
-  const points = result.points;
-  // A nota é uma fotografia do desempenho durante o vídeo, não pontos ilimitados.
-  setText('finalScoreNum', String(points));
-  setText('finalScoreMessage', points >= 85 ? 'Mandou muito bem! 🎤' : points >= 70 ? 'Boa apresentação!' : points >= 50 ? 'Valeu o show! Continue praticando.' : 'A próxima música pode render uma nota maior!');
+  const points=wasRecording?result.points:blendFunAndMelody(result.points,melody);
+  if(melody) {
+    setText('melodyScoreNum',melody.points+'/100');
+    setText('melodyStatus','Afinação final: '+melody.points+'/100. Acerto calculado pelas notas do guia salvo.');
+  }
+  setText('finalScoreNum',String(points));
+  setText('finalScoreMessage',wasRecording?'Guia concluído. Cante novamente para comparar sua afinação.'
+    : melody?('Afinação: '+melody.points+'/100 · Nota geral: '+points+'/100')
+    : points>=85?'Mandou muito bem! 🎤':points>=70?'Boa apresentação!':points>=50?'Valeu o show! Continue praticando.':'A próxima música pode render uma nota maior!');
   $('scoreNum').innerHTML=`${points}<small>/100</small>`;
   $('scoreMeter').style.width=points+'%';
   celebrateFinal(points);
@@ -379,13 +460,26 @@ function consumeMeasurement(m, origin = 'mac') {
   setText('voiceLevel',m.voice ? '♫ Voz detectada' : '♫ Sem voz clara');
   if (!playing || !current || finished) return;
   addScoreFrame(score,m);
+  const currentTime=videoTime();
+  lastMelodyTime=Math.max(lastMelodyTime,currentTime);
+  if(recordingGuide) {
+    if(m.voice && Number.isFinite(m.hz)) guideSamples.push({t:currentTime,hz:m.hz,clarity:m.clarity});
+    if(score.frames%12===0)setText('melodyStatus','🔴 Gravando guia · '+guideSamples.length+' amostras vocais.');
+  } else if(melodyGuide) {
+    addMelodyMeasurement(melodyAttempt,melodyGuide,currentTime,m);
+  }
   sendScoreToPhone(false);
   // Só exibir nota após amostra mínima para evitar pontuação alta por um grito curto.
   if (score.vocalFrames < 10) {
     setText('scoreLabel', 'Analisando seu canto…');
     return;
   }
-  const points=calculateFunScore(score);
+  const melody=melodyMetrics();
+  if(melody && !recordingGuide) {
+    setText('melodyScoreNum',melody.points+'/100');
+    if(score.frames%12===0)setText('melodyStatus','🎵 Afinação comparada ao guia: '+melody.points+'/100');
+  }
+  const points=recordingGuide?calculateFunScore(score):blendFunAndMelody(calculateFunScore(score),melody);
   $('scoreNum').innerHTML=`${points}<small>/100</small>`;
   $('scoreMeter').style.width=points+'%';
   setText('scoreLabel',points >= 85?'Arrasou! ✨':points >= 70?'Muito bom!':'Continue cantando!');
@@ -584,6 +678,23 @@ function initDesktop() {
     else favorites.unshift(current);
     localStorage.setItem('karaoke-favorites',JSON.stringify(favorites.slice(0,75)));
     $('favoriteCurrentBtn').textContent=favorites.some(s=>s.id===current.id)?'♥':'♡';renderFavorites();
+  });
+  $('recordMelodyGuideBtn').addEventListener('click',()=>{
+    if(recordingGuide){finishGuide();return;}
+    if(!current||!playerReady||!player){notify('Escolha uma música e carregue o vídeo antes de gravar o guia.');return;}
+    if(activeMicSource()==='none'){notify('Ative o microfone do celular ou Mac antes de gravar o guia.');return;}
+    resetScore();
+    guideSamples=[];
+    recordingGuide=true;
+    updateMelodyPanel();
+    player.seekTo(0,true);
+    player.playVideo();
+  });
+  $('deleteMelodyGuideBtn').addEventListener('click',()=>{
+    if(!current)return;
+    localStorage.removeItem(guideStorageKey(current.id));
+    melodyGuide=null;recordingGuide=false;guideSamples=[];
+    resetScore();updateMelodyPanel();
   });
   $('resetScoreBtn').addEventListener('click',resetScore);
   $('localMicBtn').addEventListener('click',async()=>{
