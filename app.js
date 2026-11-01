@@ -590,10 +590,11 @@ function initPhoneMode(roomCode) {
     setText('phoneScoreNum',data.points === null ? '--' : String(data.points));
     $('phoneScoreFill').style.width=(data.points ?? 0)+'%';
     $('phoneScorePanel').classList.toggle('phone-score-finished',data.phase==='finished');
+    const melodyExtra=Number.isInteger(data.melodyPoints) ? ' · Afinação '+data.melodyPoints+'/100' : '';
     setText('phoneScoreInfo',
       data.phase==='finished'
-        ? (data.points === null ? 'Sem avaliação: não foi detectado canto suficiente.' : 'Apresentação encerrada! Esta é sua nota final.')
-        : data.points !== null ? 'Sincronizado com o placar do palco.' : 'Sua nota aparecerá após alguns segundos de canto.');
+        ? (data.points === null ? 'Sem avaliação: não foi detectado canto suficiente.' : 'Nota final do palco'+melodyExtra)
+        : data.points !== null ? 'Sincronizado com o palco'+melodyExtra : 'Sua nota aparecerá após alguns segundos de canto.');
   }
   function clearPhoneScore(message='Conecte ao computador para ver a nota.') {
     setText('phoneScoreNum','--');
