@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { estimateVoice, noteName, extractYouTubeId, newScore, addScoreFrame, calculateFunScore } from '../audio.js';
+import { estimateVoice, noteName, extractYouTubeId, newScore, addScoreFrame, calculateFunScore, buildFinalResult } from '../audio.js';
 
 test('YouTube: extract standard, short and mobile links, reject lookalikes', () => {
   const id='dQw4w9WgXcQ';
@@ -79,4 +79,26 @@ test('Interrupções frequentes reduzem atividade sem zerar a avaliação', () =
   const paused = calculateFunScore(samplesFromMidi(notes,{breakEvery:3}));
   assert.ok(paused < continuous, `paused=${paused}, continuous=${continuous}`);
   assert.ok(paused >= 0);
+});
+
+test('A finalização não inventa nota se ninguém cantou', () => {
+  const score = newScore();
+  for (let i = 0; i < 30; i++) addScoreFrame(score,{voice:false,rms:0,clarity:0,hz:0});
+  assert.deepEqual(buildFinalResult(score), {enoughVoice:false,points:null});
+});
+
+test('A finalização devolve nota 0–100 sem alterar a pontuação acumulada', () => {
+  const notes = [60,64,67,69,65,62,67].flatMap(midi => Array(8).fill(midi));
+  const score = samplesFromMidi(notes);
+  const before = JSON.stringify(score);
+  const expected = calculateFunScore(score);
+  const final = buildFinalResult(score);
+  assert.deepEqual(final, {enoughVoice:true,points:expected});
+  assert.equal(JSON.stringify(score), before);
+  assert.ok(final.points>=0 && final.points<=100);
+});
+
+test('Com pouquíssimas amostras, não concede resultado final', () => {
+  const score=samplesFromMidi([60,60,60,60]);
+  assert.equal(buildFinalResult(score).points,null);
 });
