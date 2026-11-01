@@ -2,7 +2,7 @@ import { calculateFunScore, buildFinalResult } from './audio.js';
 
 // Apenas dados recreativos da pontuação são compartilhados via PeerJS.
 // Nenhuma gravação, letra ou chave de API transita nessa mensagem.
-export function makeScoreSnapshot({ score, current, playing = false, finished = false, overridePoints = undefined, melodyPoints = null }) {
+export function makeScoreSnapshot({ score, current, playing = false, finished = false, overridePoints = undefined, melodyPoints = null, lyricsPoints = null }) {
   const title = typeof current?.title === 'string' ? current.title.slice(0, 160) : '';
   const phase = !current ? 'waiting' : finished ? 'finished' : playing ? 'playing' : score?.frames ? 'paused' : 'ready';
   const enoughVoice = (score?.vocalFrames || 0) >= 10;
@@ -13,6 +13,7 @@ export function makeScoreSnapshot({ score, current, playing = false, finished = 
   const finalPoints = enoughVoice && overridePoints !== undefined ? overridePoints : points;
   const msg = { type: 'score-update', title, phase, points:finalPoints };
   if(Number.isInteger(melodyPoints) && melodyPoints>=0 && melodyPoints<=100)msg.melodyPoints=melodyPoints;
+  if(Number.isInteger(lyricsPoints) && lyricsPoints>=0 && lyricsPoints<=100)msg.lyricsPoints=lyricsPoints;
   return msg;
 }
 
@@ -22,7 +23,9 @@ export function validateScoreSnapshot(data) {
       !['waiting','ready','playing','paused','finished'].includes(data.phase)) return null;
   if (data.points !== null && (!Number.isInteger(data.points) || data.points < 0 || data.points > 100)) return null;
   if('melodyPoints' in data && (!Number.isInteger(data.melodyPoints)||data.melodyPoints<0||data.melodyPoints>100))return null;
+  if('lyricsPoints' in data && (!Number.isInteger(data.lyricsPoints)||data.lyricsPoints<0||data.lyricsPoints>100))return null;
   const result={ title: data.title.slice(0,160), phase: data.phase, points: data.points };
   if('melodyPoints' in data)result.melodyPoints=data.melodyPoints;
+  if('lyricsPoints' in data)result.lyricsPoints=data.lyricsPoints;
   return result;
 }
