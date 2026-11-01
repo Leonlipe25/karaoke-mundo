@@ -11,6 +11,9 @@ Karaokê doméstico com identidade neon para navegador no MacBook, com busca de 
 - Busca integrada via **YouTube Data API v3** com chave guardada no servidor Render.
 - Enquanto o servidor estiver sem chave, mantém seleção inicial de 10 vídeos e permite reproduzir qualquer link embutível do YouTube.
 - Microfone de celular remoto usando **PeerJS/WebRTC** e QR Code. Somente indicadores da voz são enviados, sem transmitir gravação.
+- **Tela acesa durante o canto:** no modo celular, o BoraKê solicita Screen Wake Lock automaticamente ao iniciar o microfone e libera ao pausar. Ao retornar ao Safari/Chrome, tenta reativar. Mostra status e botão de nova tentativa se o navegador negar ou liberar o bloqueio.
+- **Compatibilidade:** Chrome Android atualizado; Safari iPhone com suporte completo a partir do iOS 18.4 (iOS 16.4–18.3 tem suporte parcial); Chrome iPhone sujeito às capacidades do WebKit/iOS. Se não houver suporte, o app avisa para manter a tela ligada manualmente.
+- **Importante:** bloquear o celular pelo botão lateral ou alternar para outro aplicativo pode suspender a análise e a transmissão. Wake Lock impede apenas o bloqueio automático, quando o navegador e o sistema permitem. O recurso usa mais bateria.
 - **Fonte única de pontuação:** se celular e Mac estiverem com microfone ativo, o celular tem prioridade. O Mac continua disponível como reserva e só pontua após ~1,6 segundo sem medição do celular, se seu microfone já estiver ativado. Pausar o microfone remoto ou desconectar volta imediatamente ao Mac. Nenhuma duplicação das amostras.
 - Alternativa de usar o microfone do próprio Mac.
 - Pontuação recreativa V2 de 0 a 100 com critérios mais exigentes: presença de voz, nitidez, continuidade do tom, sustento de notas e variação musical. Evita notas altas por poucos segundos. **Não compara com a melodia original**.
