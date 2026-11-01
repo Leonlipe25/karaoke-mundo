@@ -1,5 +1,6 @@
 import { estimateVoice, noteName, newScore, addScoreFrame, calculateFunScore, extractYouTubeId, buildFinalResult } from './audio.js';
 import { selectedMicSource } from './mic-source.js';
+import { createScreenAwake } from './wake-lock.js';
 
 const $ = (id) => document.getElementById(id);
 const safeJsonParse = (v, fallback) => { try { return JSON.parse(v) ?? fallback; } catch { return fallback; } };
@@ -429,6 +430,25 @@ function createRoom() {
 function initPhoneMode(roomCode) {
   $('desktopApp').classList.add('hidden');$('phoneApp').classList.remove('hidden');
   const status=$('phoneStatus');const startBtn=$('startPhoneMicBtn');
+  const keepAwake=createScreenAwake({
+    onStatus:(state)=>{
+      const labels={
+        idle:'🌙 Microfone pausado: bloqueio normal da tela.',
+        requesting:'🔆 Ativando tela sempre ligada…',
+        active:'✅ Tela mantida acesa durante o canto.',
+        hidden:'⚠️ BoraKê em segundo plano. Volte para a página para manter o microfone ativo.',
+        unsupported:'⚠️ Seu navegador não oferece bloqueio automático da tela. Mantenha-a ligada manualmente.',
+        unavailable:'⚠️ O sistema não autorizou manter a tela acesa. Verifique o modo de economia de bateria.',
+        released:'⚠️ O celular liberou a tela. Toque em “Manter tela acesa” para tentar novamente.',
+      };
+      setText('phoneWakeStatus',labels[state]||labels.idle);
+      $('phoneWakeRetryBtn').classList.toggle('hidden',!['released','unavailable'].includes(state));
+    },
+  });
+  $('phoneWakeRetryBtn').addEventListener('click',()=>{if(stopFn)void keepAwake.start();});
+  const handleVisibility=()=>{keepAwake.visibilityChange();};
+  document.addEventListener('visibilitychange',handleVisibility);
+
   if(!/^[A-Z0-9]{6,12}$/.test(roomCode)){status.textContent='Código da sala inválido.';return;}
   if(typeof window.Peer!=='function') {status.textContent='Biblioteca de conexão não carregou. Verifique a internet e recarregue.';return;}
   const phonePeer=new window.Peer(undefined,{debug:0});
@@ -437,13 +457,22 @@ function initPhoneMode(roomCode) {
     status.textContent='Conectando ao MacBook…';
     connection=phonePeer.connect('kmundo-'+roomCode,{reliable:false});
     connection.on('open',()=>{status.textContent='✓ Conectado ao MacBook';status.classList.add('good');startBtn.disabled=false;});
-    connection.on('close',()=>{status.classList.remove('good');status.textContent='Conexão encerrada. Reabra o link no celular.';startBtn.disabled=true;if(stopFn)stopFn();});
+    connection.on('close',()=>{
+      status.classList.remove('good');status.textContent='Conexão encerrada. Reabra o link no celular.';
+      startBtn.disabled=true;
+      if(stopFn){stopFn();stopFn=null;}
+      void keepAwake.stop();
+      startBtn.textContent='Ativar microfone';
+    });
     connection.on('error',(err)=>{status.textContent='Erro de conexão: '+err.message;});
   });
   phonePeer.on('error',err=>{status.textContent=`Não foi possível conectar (${err.type||'erro'}). Confira o código e tente novamente.`;});
   startBtn.addEventListener('click',async()=>{
-    if(stopFn){stopFn();stopFn=null;if(connection?.open)connection.send({type:'mic-status',active:false});startBtn.textContent='Ativar microfone';setText('phoneMeterText','Microfone pausado');return;}
+    if(stopFn){stopFn();stopFn=null;void keepAwake.stop();if(connection?.open)connection.send({type:'mic-status',active:false});startBtn.textContent='Ativar microfone';setText('phoneMeterText','Microfone pausado');return;}
     startBtn.disabled=true;
+    // Inicie a requisição dentro do clique, antes do prompt assíncrono do microfone.
+    // Assim Safari e Chrome podem conceder o bloqueio na mesma interação.
+    void keepAwake.start();
     try {
       stopFn=await startMicAnalysis(m=>{
         if(connection?.open)connection.send({type:'pitch',hz:m.hz,clarity:m.clarity,rms:m.rms,voice:m.voice});
@@ -454,10 +483,10 @@ function initPhoneMode(roomCode) {
       });
       if(connection?.open)connection.send({type:'mic-status',active:true});
       startBtn.textContent='Pausar microfone';
-    } catch(e){status.classList.remove('good');status.textContent='Não foi possível abrir o microfone: '+e.message;}
+    } catch(e){void keepAwake.stop();status.classList.remove('good');status.textContent='Não foi possível abrir o microfone: '+e.message;}
     finally {startBtn.disabled=false;}
   });
-  window.addEventListener('pagehide',()=>{if(stopFn)stopFn();phonePeer.destroy();});
+  window.addEventListener('pagehide',()=>{if(stopFn)stopFn();stopFn=null;void keepAwake.stop();document.removeEventListener('visibilitychange',handleVisibility);phonePeer.destroy();});
 }
 function initDesktop() {
   // Chaves legadas do YouTube não precisam ficar salvas no navegador.
