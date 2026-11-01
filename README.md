@@ -1,8 +1,12 @@
-# Karaokê Mundo 🎤
+# BoraKê 🎤 — Seu palco, sua vibe
 
-Um karaokê doméstico para navegador no MacBook, com busca de vídeos de karaokê brasileiros e internacionais, reprodução pelo YouTube e pontuação recreativa com o microfone do celular.
+Karaokê doméstico com identidade neon para navegador no MacBook, com busca de vídeos de karaokê brasileiros e internacionais, reprodução pelo YouTube e pontuação recreativa com o microfone do celular.
 
 ## Principais funções
+- **Dois modos:** biblioteca de músicas e palco ampliado; o palco também oferece tela cheia do navegador quando disponível.
+- **Fila de hits:** botão “+ Fila” em cada resultado, reprodução da próxima música, remoção e limpeza da fila. A lista fica no navegador do dispositivo (não sincronizada entre computadores).
+- **Feedback de festa:** mensagens de pontuação durante o canto, resultado final com confetes leves e botões “Cantar de novo” ou “Próxima da fila”.
+- **Marca BoraKê:** identidade neon roxa, rosa e turquesa, cartões de gêneros e QR Code maior para o celular.
 - Abas **Brasileiras**, **Internacionais** e **Todas**, com pesquisa por gênero, artista e música.
 - Busca integrada via **YouTube Data API v3** com chave guardada no servidor Render.
 - Enquanto o servidor estiver sem chave, mantém seleção inicial de 10 vídeos e permite reproduzir qualquer link embutível do YouTube.
@@ -41,6 +45,7 @@ Acesse http://localhost:8000. O microfone remoto do celular exige HTTPS ou ambie
 - O projeto **não hospeda músicas**; utiliza vídeos incorporados do YouTube, sujeitos a disponibilidade, região e permissão de incorporação.
 - A pontuação avalia presença e clareza da voz; **não diz se as notas da música foram acertadas**. Música alta pode afetar a medida.
 - A pesquisa geral depende de configurar YOUTUBE_API_KEY no Render e da cota do YouTube. A seleção não garante reprodução de vídeos que bloqueiem incorporação.
+- A fila e os favoritos são armazenados apenas no navegador atual; não há conta nem sincronização entre dispositivos.
 - O serviço público PeerJS pode falhar em redes com restrições de WebRTC. Não foi validado em dispositivos reais nesta versão.
 - Esta é uma implementação nova e leve, inspirada no conceito do AllKaraoke, **não um fork** do código dele.
 
