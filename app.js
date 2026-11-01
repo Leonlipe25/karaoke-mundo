@@ -32,6 +32,7 @@ let recordingGuide = false;
 let guideSamples = [];
 let lastMelodyTime = 0;
 let melodyFinalPoints = null;
+let guideJustRecorded = false;
 const loadQueue = () => {
   const saved = safeJsonParse(localStorage.getItem('borake-song-queue'), []);
   return (Array.isArray(saved) ? saved : [])
@@ -265,7 +266,7 @@ function decodeHtml(value) { const t = document.createElement('textarea'); t.inn
 // O computador é a fonte oficial do placar: o celular só exibe a nota recebida.
 function sendScoreToPhone(force = false) {
   if (!remoteConnection?.open) return;
-  const tune = melodyGuide && !recordingGuide ? calculateMelodyAccuracy(melodyAttempt,melodyGuide,lastMelodyTime) : null;
+  const tune = melodyGuide && !recordingGuide && !guideJustRecorded ? calculateMelodyAccuracy(melodyAttempt,melodyGuide,lastMelodyTime) : null;
   const enoughVoice=score.vocalFrames>=10;
   const funPoints=enoughVoice?calculateFunScore(score):null;
   const combined=enoughVoice?blendFunAndMelody(funPoints,tune):null;
@@ -316,6 +317,7 @@ function finishGuide() {
   const notes=buildMelodyGuide(guideSamples);
   guideSamples=[];
   if(notes && current && storeMelodyGuide(current.id,notes)) {
+    guideJustRecorded=true;
     melodyGuide=notes;
     setText('melodyStatus','✅ Guia gravado com '+notes.length+' pontos de nota. Repita o vídeo para testar a afinação.');
     setText('melodyScoreNum','--/100');
@@ -331,7 +333,7 @@ function videoTime() {
   catch {return 0;}
 }
 function melodyMetrics(final=false) {
-  if(!melodyGuide || recordingGuide)return null;
+  if(!melodyGuide || recordingGuide || guideJustRecorded)return null;
   const t=final?melodyGuide.at(-1).t+1:Math.max(lastMelodyTime,videoTime());
   return calculateMelodyAccuracy(melodyAttempt,melodyGuide,t);
 }
@@ -380,6 +382,7 @@ function resetScore() {
   melodyAttempt=newMelodyAttempt();
   lastMelodyTime=0;
   melodyFinalPoints=null;
+  guideJustRecorded=false;
   finished = false;
   setText('scoreNum','--');
   setText('scoreLabel','Pronto para cantar');
@@ -403,7 +406,7 @@ function finishPresentation() {
   if(wasRecording)finishGuide();
   finished=true;
   const result=buildFinalResult(score);
-  const melody=wasRecording?null:melodyMetrics(true);
+  const melody=(wasRecording||guideJustRecorded)?null:melodyMetrics(true);
   melodyFinalPoints=melody?.points??null;
   $('finalResult').classList.remove('hidden');
   setText('scoreLabel','Apresentação encerrada');
@@ -416,13 +419,13 @@ function finishPresentation() {
     sendScoreToPhone(true);
     return;
   }
-  const points=wasRecording?result.points:blendFunAndMelody(result.points,melody);
+  const points=(wasRecording||guideJustRecorded)?result.points:blendFunAndMelody(result.points,melody);
   if(melody) {
     setText('melodyScoreNum',melody.points+'/100');
     setText('melodyStatus','Afinação final: '+melody.points+'/100. Acerto calculado pelas notas do guia salvo.');
   }
   setText('finalScoreNum',String(points));
-  setText('finalScoreMessage',wasRecording?'Guia concluído. Cante novamente para comparar sua afinação.'
+  setText('finalScoreMessage',(wasRecording||guideJustRecorded)?'Guia concluído. Cante novamente para comparar sua afinação.'
     : melody?('Afinação: '+melody.points+'/100 · Nota geral: '+points+'/100')
     : points>=85?'Mandou muito bem! 🎤':points>=70?'Boa apresentação!':points>=50?'Valeu o show! Continue praticando.':'A próxima música pode render uma nota maior!');
   $('scoreNum').innerHTML=`${points}<small>/100</small>`;
@@ -480,7 +483,7 @@ function consumeMeasurement(m, origin = 'mac') {
     setText('melodyScoreNum',melody.points+'/100');
     if(score.frames%12===0)setText('melodyStatus','🎵 Afinação comparada ao guia: '+melody.points+'/100');
   }
-  const points=recordingGuide?calculateFunScore(score):blendFunAndMelody(calculateFunScore(score),melody);
+  const points=(recordingGuide||guideJustRecorded)?calculateFunScore(score):blendFunAndMelody(calculateFunScore(score),melody);
   $('scoreNum').innerHTML=`${points}<small>/100</small>`;
   $('scoreMeter').style.width=points+'%';
   setText('scoreLabel',points >= 85?'Arrasou! ✨':points >= 70?'Muito bom!':'Continue cantando!');
@@ -717,6 +720,7 @@ function initDesktop() {
     resetScore();
     guideSamples=[];
     recordingGuide=true;
+    guideJustRecorded=false;
     updateMelodyPanel();
     player.seekTo(0,true);
     player.playVideo();
