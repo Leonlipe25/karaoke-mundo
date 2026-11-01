@@ -428,3 +428,36 @@ button:focus-visible,a:focus-visible {outline:2px solid #68e9df;outline-offset:3
 .melody-actions{display:flex;flex-wrap:wrap;gap:8px;}
 .melody-actions .btn{font-size:11px;padding:9px 12px;}
 .melody-panel small{display:block;margin-top:12px;color:#b2aaca;font-size:10px;line-height:1.6;}
+
+
+/* Avaliação gratuita da letra: referência local e consentimento explícito. */
+.lyrics-panel{
+  margin-top:14px;padding:17px 18px;border-radius:17px;
+  border:1px solid #7a5fa98f;
+  background:linear-gradient(125deg,#29274a,#342349);
+}
+.lyrics-heading{display:flex;align-items:center;justify-content:space-between;gap:9px;}
+.lyrics-heading strong{font:800 15px 'Outfit',sans-serif;color:#fff;}
+.lyrics-heading>span{font:900 18px 'Outfit',sans-serif;color:#79e6dc;white-space:nowrap;}
+.lyrics-panel p{color:#d4cbe7;font-size:12px;line-height:1.55;}
+.lyrics-fields{display:grid;grid-template-columns:92px 1fr;align-items:center;gap:8px 10px;margin-bottom:12px;}
+.lyrics-fields label,.lyrics-manual label{font-size:11px;color:#e3d7ef;}
+.lyrics-fields input,.lyrics-manual textarea,.phone-lyrics select{
+  background:#1a1a34;border:1px solid #5e4c7c;border-radius:10px;
+  padding:10px;color:#fff;font:inherit;font-size:12px;width:100%;min-width:0;
+}
+.lyrics-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}
+.lyrics-actions .btn{white-space:normal;font-size:11px;}
+.lyrics-manual{margin:10px 0;padding:13px;background:#1e1d39;border-radius:12px;border:1px solid #63557c;}
+.lyrics-manual textarea{resize:vertical;min-height:105px;display:block;margin:9px 0 10px;line-height:1.5;}
+.lyrics-metric{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;color:#d6c3ed;font-size:11px;padding:9px 0;}
+.lyrics-panel small{font-size:10px;line-height:1.55;color:#afa5c6;display:block;}
+.phone-lyrics{margin:14px 0;background:#292340;border:1px solid #6f5686;border-radius:14px;padding:13px;text-align:left;}
+.phone-lyrics-title{font-weight:800;font-size:13px;color:#fff;margin-bottom:12px;}
+.phone-lyrics-title span{font-size:9px;background:#754d8e;padding:3px 5px;border-radius:6px;}
+.phone-consent{display:flex;align-items:flex-start;gap:9px;color:#dfd6ec;font-size:11px;line-height:1.55;}
+.phone-consent input{accent-color:#f76fac;width:17px;height:17px;flex:0 0 17px;margin:0;}
+.phone-lyrics select{margin:12px 0;}
+.phone-lyrics button{white-space:normal;}
+.phone-lyrics p{font-size:11px;color:#dbbfee;line-height:1.55;margin:12px 0 0;}
+@media(max-width:640px){.lyrics-fields{grid-template-columns:1fr;}.lyrics-fields label{margin-top:3px;}}
