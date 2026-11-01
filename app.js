@@ -1,4 +1,4 @@
-import { estimateVoice, noteName, newScore, addScoreFrame, calculateFunScore, extractYouTubeId } from './audio.js';
+import { estimateVoice, noteName, newScore, addScoreFrame, calculateFunScore, extractYouTubeId, buildFinalResult } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 const safeJsonParse = (v, fallback) => { try { return JSON.parse(v) ?? fallback; } catch { return fallback; } };
@@ -10,6 +10,7 @@ let current = null;
 let player = null;
 let playerReady = false;
 let playing = false;
+let finished = false;
 let score = newScore();
 let peer = null;
 let room = '';
@@ -146,18 +147,60 @@ function createPlayer(videoId) {
   if (player) { if (playerReady) player.loadVideoById(videoId); return; }
   player = new window.YT.Player('yt-player',{width:'100%',height:'100%',videoId,playerVars:{playsinline:1,rel:0,origin:location.origin},events:{
     onReady:()=>{playerReady=true;},
-    onStateChange:(ev)=>{playing = ev.data===window.YT.PlayerState.PLAYING; if(ev.data===window.YT.PlayerState.ENDED) { playing=false; setText('scoreLabel','Apresentação encerrada'); }},
+    onStateChange:(ev)=>{
+      if (ev.data === window.YT.PlayerState.ENDED) {
+        finishPresentation();
+      } else if (ev.data === window.YT.PlayerState.PLAYING) {
+        // Replay do mesmo vídeo é uma nova apresentação.
+        if (finished) resetScore();
+        playing = true;
+      } else {
+        // Pause e buffering suspendem a análise, mas preservam a avaliação.
+        playing = false;
+      }
+    },
     onError:(ev)=>{playing=false;notify(`Esse vídeo pode não permitir reprodução incorporada (código ${ev.data}). Tente outro resultado.`);}
   }});
 }
 window.onYouTubeIframeAPIReady = () => { if(current) createPlayer(current.id); };
-function resetScore() {score = newScore(); setText('scoreNum','--');setText('scoreLabel','Pronto para cantar');$('scoreMeter').style.width='0%';setText('pitchNote','♪ Aguardando voz');setText('voiceLevel','♫ Sem sinal');}
+function resetScore() {
+  score = newScore();
+  finished = false;
+  setText('scoreNum','--');
+  setText('scoreLabel','Pronto para cantar');
+  $('scoreMeter').style.width='0%';
+  setText('pitchNote','♪ Aguardando voz');
+  setText('voiceLevel','♫ Sem sinal');
+  $('finalResult').classList.add('hidden');
+}
+
+function finishPresentation() {
+  if (finished || !current) return;
+  playing = false;
+  finished = true;
+  const result = buildFinalResult(score);
+  $('finalResult').classList.remove('hidden');
+  setText('scoreLabel', 'Apresentação encerrada');
+  if (!result.enoughVoice) {
+    setText('finalScoreNum','--');
+    setText('finalScoreMessage','Não detectamos canto suficiente para gerar uma nota. Tente novamente com o microfone ativado.');
+    $('scoreNum').innerHTML='--<small>/100</small>';
+    $('scoreMeter').style.width='0%';
+    return;
+  }
+  const points = result.points;
+  // A nota é uma fotografia do desempenho durante o vídeo, não pontos ilimitados.
+  setText('finalScoreNum', String(points));
+  setText('finalScoreMessage', points >= 85 ? 'Mandou muito bem! 🎤' : points >= 70 ? 'Boa apresentação!' : points >= 50 ? 'Valeu o show! Continue praticando.' : 'A próxima música pode render uma nota maior!');
+  $('scoreNum').innerHTML=`${points}<small>/100</small>`;
+  $('scoreMeter').style.width=points+'%';
+}
 function consumeMeasurement(m) {
   if (!m || typeof m !== 'object' || !Number.isFinite(m.rms) || !Number.isFinite(m.clarity)) return;
   lastPitch=m;
   setText('pitchNote',m.voice ? `♪ ${noteName(m.hz)}` : '♪ Aguardando voz');
   setText('voiceLevel',m.voice ? '♫ Voz detectada' : '♫ Sem voz clara');
-  if (!playing || !current) return;
+  if (!playing || !current || finished) return;
   addScoreFrame(score,m);
   // Só exibir nota após amostra mínima para evitar pontuação alta por um grito curto.
   if (score.vocalFrames < 10) {
