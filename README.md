@@ -14,6 +14,8 @@ Karaokê doméstico com identidade neon para navegador no MacBook, com busca de 
 - **Tela acesa durante o canto:** no modo celular, o BoraKê solicita Screen Wake Lock automaticamente ao iniciar o microfone e libera ao pausar. Ao retornar ao Safari/Chrome, tenta reativar. Mostra status e botão de nova tentativa se o navegador negar ou liberar o bloqueio.
 - **Compatibilidade:** Chrome Android atualizado; Safari iPhone com suporte completo a partir do iOS 18.4 (iOS 16.4–18.3 tem suporte parcial); Chrome iPhone sujeito às capacidades do WebKit/iOS. Se não houver suporte, o app avisa para manter a tela ligada manualmente.
 - **Importante:** bloquear o celular pelo botão lateral ou alternar para outro aplicativo pode suspender a análise e a transmissão. Wake Lock impede apenas o bloqueio automático, quando o navegador e o sistema permitem. O recurso usa mais bateria.
+- **Afinação por referência (beta):** selecione um vídeo, ative um microfone e clique em **Gravar guia desta música**. O BoraKê reinicia o vídeo, registra somente frequências vocais e segundos de reprodução e salva os pontos na memória local do navegador. Ao repetir a música, compara as notas cantadas ao guia sincronizado: **70% de acerto de notas + 30% de qualidade vocal**, com tolerância moderada de semitons e oitava. **Não é automaticamente a melodia do cantor original**: a referência é uma apresentação gravada pelo usuário. Sem guia, mantém a nota recreativa. Nenhum áudio bruto é armazenado.
+- **QR persistente:** cada computador/navegador guarda um identificador de sala aleatório de 128 bits em localStorage. Ao voltar ao BoraKê, a sala tenta reabrir automaticamente com o mesmo código; o celular com o link antigo correto pode reconectar sem novo scan. A página do celular também tenta reconectar quando o computador reinicia. O primeiro QR atualizado precisa ser escaneado uma vez, pois IDs das versões anteriores não são compatíveis.
 - **Placar ao vivo no celular:** o MacBook calcula a nota e envia atualizações de 0 a 100 ao telefone pela conexão PeerJS já existente. O telefone mostra música atual, estado (cantando/pausado/finalizado) e nota final, sem calcular outra pontuação e sem receber áudio bruto.
 - **Fonte única de pontuação:** se celular e Mac estiverem com microfone ativo, o celular tem prioridade. O Mac continua disponível como reserva e só pontua após ~1,6 segundo sem medição do celular, se seu microfone já estiver ativado. Pausar o microfone remoto ou desconectar volta imediatamente ao Mac. Nenhuma duplicação das amostras.
 - Alternativa de usar o microfone do próprio Mac.
@@ -31,6 +33,17 @@ O workflow de `.github/workflows/pages.yml` roda testes e publica o site quando 
 A busca de músicas é encaminhada ao backend Node.js hospedado em https://karaoke-mundo-api.onrender.com. A chave **YOUTUBE_API_KEY** fica nas variáveis de ambiente do serviço Render [karaoke-mundo-api](https://dashboard.render.com/web/srv-dbjo1fh42hec73djsgug/env), não no GitHub nem nos navegadores.
 
 Configuração única: Render → karaoke-mundo-api → Environment → Add Environment Variable → nome `YOUTUBE_API_KEY`, valor da chave criada no Google Cloud → Save, rebuild/deploy. A chave usada pelo servidor deve ter restrição de API à YouTube Data API v3; **não pode manter restrição de aplicativo por HTTP referrer**, porque agora quem chama o YouTube é o servidor. Para proteger a cota, o backend tem cache e limites básicos. A API não possui autenticação de usuários: o CORS limita navegadores, mas não impede automações externas; monitore cotas e configure limites no Google Cloud.
+
+### Afinando com um guia pessoal
+1. No computador, selecione o vídeo pelo buscador ou cole o link.
+2. Conecte o celular e **ative o microfone**. Se quiser, use o microfone do Mac.
+3. Em **Afinação por referência**, escolha **Gravar guia desta música**. O vídeo volta ao início; cante o trecho desejado até o fim (ou finalize manualmente).
+4. Repita o vídeo. Agora aparecerá a nota de afinação baseada no guia gravado; você poderá remover ou regravar o guia.
+5. O guia é armazenado **somente no navegador que gravou**, por ID do vídeo. Se apagar dados locais ou trocar de computador, ele não estará disponível.
+A comparação pressupõe mesmo vídeo, mesma velocidade e voz bem captada; atrasos de rede, diferença de tonalidade e eco podem influenciar o resultado. O método não obtém transcrição nem extrai áudio dos vídeos do YouTube.
+
+### Pareamento sem novo QR
+O primeiro acesso após esta atualização exige um novo scan, porque o código antigo era temporário. Depois, mantenha o endereço do celular nos favoritos. O computador usa o mesmo código ao reabrir o site, e o celular tenta reconectar. **Trocar QR (desvincula celular)** invalida o link anterior. Desligar/fechar o navegador do celular interrompe o microfone; ao reabrir, pode ser necessário apertar **Ativar microfone** novamente por exigência de privacidade dos sistemas.
 
 ### Usar o celular
 1. Abra o site no MacBook.
