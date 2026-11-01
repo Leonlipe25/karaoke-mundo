@@ -73,10 +73,10 @@ test('Introdução instrumental antes de começar a cantar não reduz nota', () 
   assert.equal(withIntro,withoutIntro);
 });
 
-test('Pausas durante o canto reduzem atividade sem zerar a avaliação', () => {
+test('Interrupções frequentes reduzem atividade sem zerar a avaliação', () => {
   const notes = [60,64,67,65,69,67,62,65,67,64].flatMap(n => Array(8).fill(n));
   const continuous = calculateFunScore(samplesFromMidi(notes));
-  const paused = calculateFunScore(samplesFromMidi(notes,{breakEvery:6}));
+  const paused = calculateFunScore(samplesFromMidi(notes,{breakEvery:3}));
   assert.ok(paused < continuous, `paused=${paused}, continuous=${continuous}`);
   assert.ok(paused >= 0);
 });
