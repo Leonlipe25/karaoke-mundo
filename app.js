@@ -19,6 +19,21 @@ let lastPitch = null;
 let lastConnectionAt = 0;
 let searchAbort = null;
 
+// Catálogo inicial de vídeos identificados no YouTube: não requer chave de API.
+const starterSongs = [
+  { id:'tfhwXKd1W_o', title:'Evidências — Chitãozinho & Xororó', channel:'Singer! Karaokê', region:'BR', tags:'sertanejo romântico' },
+  { id:'qbCUViw6-5I', title:'Cheia de Manias — Raça Negra', channel:'Singer! Karaokê', region:'BR', tags:'pagode samba' },
+  { id:'oPEsF8Rj0w8', title:'Tempo Perdido — Legião Urbana', channel:'Singer! Karaokê', region:'BR', tags:'rock nacional anos 80 mpb' },
+  { id:'0lnjAxPq_u8', title:'Anna Júlia — Los Hermanos', channel:'JJ Karaokê', region:'BR', tags:'rock nacional' },
+  { id:'Fjm5JwF-YcM', title:'Trem-Bala — Ana Vilela', channel:'Muramatsu Karaoke', region:'BR', tags:'mpb pop acústico' },
+  { id:'sPMA1tqWuf4', title:'Perfect — Ed Sheeran', channel:'Sing King', region:'INT', tags:'pop internacional baladas românticas' },
+  { id:'_uORhCSX2f8', title:'Someone Like You — Adele', channel:'Sing King', region:'INT', tags:'pop internacional baladas' },
+  { id:'WHayJZ3eMcE', title:'Dancing Queen — ABBA', channel:'Sing King', region:'INT', tags:'pop internacional anos 70 disco' },
+  { id:'aFpj_kRkdHg', title:'Bohemian Rhapsody — Queen', channel:'karaoke SESH', region:'INT', tags:'rock clássico internacional' },
+  { id:'WQaUGRL3yS4', title:'Shallow — Lady Gaga e Bradley Cooper', channel:'karaoke SESH', region:'INT', tags:'pop internacional baladas dueto' },
+];
+const normalizeSearch = (value) => String(value || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().trim();
+
 const chipsByRegion = {
   BR: ['Sertanejo', 'Pagode', 'MPB', 'Forró', 'Samba', 'Rock nacional'],
   INT: ['Pop internacional', 'Rock clássico', 'Anos 80', 'Baladas', 'Reggaeton', 'K-pop'],
@@ -71,13 +86,35 @@ function renderFavorites() {
     b.addEventListener('click', () => selectSong(s)); return b;
   }));
 }
+function renderStarterCatalog(query = '') {
+  const phrase=normalizeSearch(query);
+  const candidates=starterSongs.filter(song=>region==='ALL'||song.region===region);
+  const songs=phrase ? candidates.filter(song=>normalizeSearch(song.title+' '+song.channel+' '+song.tags).includes(phrase)) : candidates;
+  renderResults(songs, phrase?'Resultados do catálogo inicial':'Comece por estas músicas');
+  const results=$('results');
+  const box=document.createElement('div');
+  box.className='catalog-help';
+  const message=document.createElement('span');
+  message.textContent=phrase
+    ? (songs.length ? 'Quer ver mais opções ou outra versão? ' : 'Ainda não temos essa música na seleção inicial. ')
+    : 'Estas músicas já podem ser escolhidas sem configurar nada. ';
+  const link=document.createElement('a');
+  link.href='https://www.youtube.com/results?search_query='+encodeURIComponent(searchTerms(query || (region==='BR'?'karaokê brasileiro':region==='INT'?'international karaoke':'karaokê karaoke')));
+  link.target='_blank';link.rel='noopener noreferrer';
+  link.textContent=phrase?'Pesquisar mais no YouTube ↗':'Explorar outras músicas no YouTube ↗';
+  const tip=document.createElement('small');
+  tip.textContent='Achou o vídeo? Copie o endereço e cole em “JÁ TEM O LINK?” para tocar aqui.';
+  box.append(message,link,tip);
+  results.prepend(box);
+  setText('resultsCount',songs.length+' pré-selecionadas');
+  notify('Catálogo inicial disponível sem chave. Para buscar todo o YouTube aqui dentro, configure uma chave da YouTube Data API.',true);
+}
+
 async function runSearch(query) {
   const text = query?.trim(); if (!text) return;
   if (!apiKey) {
-    const target = `https://www.youtube.com/results?search_query=${encodeURIComponent(searchTerms(text))}`;
-    const link = document.createElement('a'); link.href = target; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'Abrir pesquisa no YouTube';
-    const box = $('searchNotice'); box.classList.remove('success'); box.replaceChildren(document.createTextNode('A pesquisa integrada exige uma chave gratuita da API. '), link, document.createTextNode('. Copie o link do vídeo desejado e cole aqui.'));
-    $('settingsBtn').classList.add('needs-setup'); return;
+    renderStarterCatalog(text);
+    return;
   }
   $('searchBtn').disabled = true; $('searchBtn').textContent = 'Buscando…';
   notify('Buscando vídeos de karaokê no YouTube…');
@@ -213,9 +250,9 @@ function initPhoneMode(roomCode) {
   window.addEventListener('pagehide',()=>{if(stopFn)stopFn();phonePeer.destroy();});
 }
 function initDesktop() {
-  renderChips();renderFavorites();
+  renderChips();renderFavorites();if(!apiKey)renderStarterCatalog();
   document.querySelectorAll('[data-region]').forEach(b=>b.addEventListener('click',()=>{
-    region=b.dataset.region;document.querySelectorAll('[data-region]').forEach(t=>t.classList.toggle('active',t===b));renderChips();
+    region=b.dataset.region;document.querySelectorAll('[data-region]').forEach(t=>t.classList.toggle('active',t===b));renderChips();if(!apiKey)renderStarterCatalog($('searchInput').value);
   }));
   $('searchForm').addEventListener('submit',e=>{e.preventDefault();runSearch($('searchInput').value);});
   $('directBtn').addEventListener('click',()=>{
@@ -242,8 +279,8 @@ function initDesktop() {
     try{await navigator.clipboard.writeText(roomUrl(room));$('copyRoomBtn').textContent='Link copiado ✓';}catch{$('copyRoomBtn').textContent='Não foi possível copiar';}
   });
   $('settingsBtn').addEventListener('click',()=>{$('apiKeyInput').value=apiKey;$('settingsDialog').showModal();});
-  $('settingsForm').addEventListener('submit',e=>{e.preventDefault();apiKey=$('apiKeyInput').value.trim();if(apiKey)localStorage.setItem('karaoke-youtube-key',apiKey);else localStorage.removeItem('karaoke-youtube-key');$('settingsDialog').close();notify(apiKey?'Pesquisa integrada configurada. Escolha uma música.':'Chave removida. Use um link direto para reproduzir.',Boolean(apiKey));});
-  $('clearKeyBtn').addEventListener('click',()=>{$('apiKeyInput').value='';apiKey='';localStorage.removeItem('karaoke-youtube-key');$('settingsDialog').close();notify('Chave removida. A busca integrada precisa de uma chave válida.');});
+  $('settingsForm').addEventListener('submit',e=>{e.preventDefault();apiKey=$('apiKeyInput').value.trim();if(apiKey)localStorage.setItem('karaoke-youtube-key',apiKey);else localStorage.removeItem('karaoke-youtube-key');$('settingsDialog').close();if(!apiKey)renderStarterCatalog($('searchInput').value);notify(apiKey?'Pesquisa integrada configurada. Escolha uma música.':'Chave removida. Use um link direto para reproduzir.',Boolean(apiKey));});
+  $('clearKeyBtn').addEventListener('click',()=>{$('apiKeyInput').value='';apiKey='';localStorage.removeItem('karaoke-youtube-key');$('settingsDialog').close();renderStarterCatalog($('searchInput').value);notify('Chave removida. A busca integrada precisa de uma chave válida.');});
   if(apiKey)notify('Pesquisa integrada configurada. Escolha uma música para começar.',true);
   const params=new URLSearchParams(location.search);
   const initialId=extractYouTubeId(params.get('v'));
