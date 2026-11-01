@@ -76,7 +76,16 @@
             <p id="finalScoreMessage">Avaliando sua apresentação...</p>
             <span class="final-result-footnote">Pontuação recreativa · Não compara com a melodia original</span><div class="final-buttons"><button type="button" class="btn primary" id="playNextFromFinalBtn">▶ Próxima da fila</button><button type="button" class="btn outline" id="replayCurrentBtn">↻ Cantar de novo</button></div>
           </div>
-          <p class="score-disclaimer">Nota recreativa mais exigente: considera controle e variação das notas, continuidade e clareza da voz. Não compara com a melodia original.</p>
+          <section class="melody-panel" id="melodyPanel" aria-label="Afinação com referência musical">
+            <div class="melody-title"><strong>🎼 Afinação por referência</strong><span class="melody-score" id="melodyScoreNum">--/100</span></div>
+            <p id="melodyStatus">Esta música ainda não tem um guia de notas. Você pode gravar uma vez e comparar suas próximas tentativas.</p>
+            <div class="melody-actions">
+              <button class="btn primary" type="button" id="recordMelodyGuideBtn">🎙 Gravar guia desta música</button>
+              <button class="btn outline hidden" type="button" id="deleteMelodyGuideBtn">Excluir guia</button>
+            </div>
+            <small>Com guia: 70% da nota compara as alturas das notas pelo tempo do vídeo, 30% considera o desempenho vocal. O guia é sua própria gravação de notas, não a melodia oficial do artista. Nenhum áudio é salvo.</small>
+          </section>
+          <p class="score-disclaimer" id="scoreDisclaimer">Sem guia de notas, a nota é recreativa e avalia apenas sua voz. Com guia, a pontuação inclui comparação real da afinação.</p>
           <div class="player-actions"><button class="btn outline" id="resetScoreBtn">↻ Zerar nota</button><button class="btn outline" id="localMicBtn">🎙 Microfone do Mac</button></div>
         </section>
         <section class="glass phone-panel" id="phonePanel"><div class="section-heading compact"><div><span class="eyebrow">SEU CELULAR, SEU MICROFONE</span><h2>Entre na festa 📱</h2></div><span class="phone-icon">▯</span></div><p>Continue cantando na caixa Bluetooth. Use o celular perto da boca para calcular a nota.</p><div id="connectionStatus" class="status-line"><span class="status-light"></span> Celular não conectado</div><button id="createRoomBtn" class="btn secondary full">Conectar celular <span aria-hidden="true">↗</span></button><div id="roomDetails" class="room-details hidden"><div class="room-content"><div id="qrCode" class="qr"></div><div><span class="muted mini">CÓDIGO DA SALA</span><strong id="roomCode" class="room-code">------</strong><button class="text-button" id="copyRoomBtn">Copiar link</button></div></div><p class="mini">Abra o link no celular e permita usar o microfone. Requer HTTPS e conexão à internet.</p></div></section>
