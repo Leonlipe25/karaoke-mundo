@@ -46,22 +46,118 @@ export function noteName(frequency) {
   return names[((midi % 12) + 12) % 12] + Math.floor(midi / 12 - 1);
 }
 
-export function newScore() { return { frames: 0, vocalFrames: 0, claritySum: 0, firstVocalAt: 0 }; }
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+
+/**
+ * Pontuação recreativa V2: avalia presença vocal, nitidez de tom, continuidade e
+ * movimentação melódica. Não compara notas com a melodia correta da música.
+ * Uma pessoa que canta outra melodia de maneira consistente ainda pode pontuar bem.
+ * Frames chegam aproximadamente a cada 180 ms do microfone remoto ou local.
+ */
+export function newScore() {
+  return {
+    frames: 0,
+    vocalFrames: 0,
+    claritySum: 0,
+    firstVocalAt: 0,
+    lastMidi: null,
+    pitchTransitions: 0,
+    transitionQualitySum: 0,
+    pitchRun: 0,
+    sustainedFrames: 0,
+    pitchBins: Object.create(null),
+  };
+}
+
 export function addScoreFrame(score, measurement) {
   score.frames++;
-  if (measurement.voice && measurement.rms >= 0.018 && measurement.clarity >= 0.67) {
-    score.vocalFrames++;
-    score.claritySum += Math.max(0, Math.min(1, measurement.clarity));
+  const voiced = measurement?.voice === true
+    && Number.isFinite(measurement.rms) && measurement.rms >= 0.018
+    && Number.isFinite(measurement.clarity) && measurement.clarity >= 0.67;
+
+  if (!voiced) {
+    score.lastMidi = null;
+    score.pitchRun = 0;
+    return score;
   }
+  if (!score.firstVocalAt) score.firstVocalAt = score.frames;
+  score.vocalFrames++;
+  score.claritySum += clamp01(measurement.clarity);
+
+  const hz = measurement.hz;
+  if (!Number.isFinite(hz) || hz < 75 || hz > 950) {
+    score.lastMidi = null;
+    score.pitchRun = 0;
+    return score;
+  }
+  const midi = 69 + 12 * Math.log2(hz / 440);
+  const bin = Math.round(midi);
+  score.pitchBins[bin] = (score.pitchBins[bin] || 0) + 1;
+
+  if (score.lastMidi === null) {
+    score.pitchRun = 1;
+  } else {
+    const step = Math.abs(midi - score.lastMidi);
+    score.pitchTransitions++;
+    // Pequenas variações (inclusive vibrato) são bem-vindas; saltos grandes
+    // consecutivos indicam mais instabilidade ou erro de detecção que musicalidade.
+    score.transitionQualitySum += step <= 1.5 ? 1 : step <= 3 ? 0.9 : step <= 5 ? 0.6 : step <= 8 ? 0.25 : 0;
+    score.pitchRun = step <= 1.5 ? score.pitchRun + 1 : 1;
+    if (score.pitchRun === 3) score.sustainedFrames += 3;
+    else if (score.pitchRun > 3) score.sustainedFrames++;
+  }
+  score.lastMidi = midi;
   return score;
 }
-export function calculateFunScore(score) {
-  if (!score.vocalFrames || !score.frames) return 0;
-  const activeShare = score.vocalFrames / score.frames;
-  const avgClarity = score.claritySum / score.vocalFrames;
-  // This is deliberately generous and recreational. It does NOT assess correct melody.
-  return Math.max(0, Math.min(100, Math.round(40 + 40 * activeShare + 20 * avgClarity)));
+
+function robustPitchRange(pitchBins) {
+  // Desconsidera breves picos isolados ao estimar a variedade de notas.
+  const entries = Object.entries(pitchBins)
+    .map(([midi, count]) => [Number(midi), count])
+    .filter(([, count]) => count >= 2)
+    .sort((a, b) => a[0] - b[0]);
+  const total = entries.reduce((sum, [, count]) => sum + count, 0);
+  if (total < 12) return 0;
+  let sum = 0;
+  let low = entries[0][0];
+  let high = entries.at(-1)[0];
+  for (const [midi, count] of entries) {
+    sum += count;
+    if (sum >= total * 0.10) { low = midi; break; }
+  }
+  sum = 0;
+  for (const [midi, count] of entries) {
+    sum += count;
+    if (sum >= total * 0.90) { high = midi; break; }
+  }
+  return Math.max(0, high - low);
 }
+
+export function calculateFunScore(score) {
+  if (!score?.vocalFrames || !score.firstVocalAt) return 0;
+  const listeningFrames = score.frames - score.firstVocalAt + 1;
+  const activeShare = score.vocalFrames / Math.max(1, listeningFrames);
+  const avgClarity = score.claritySum / score.vocalFrames;
+  const smoothness = score.pitchTransitions
+    ? score.transitionQualitySum / score.pitchTransitions : 0;
+  const sustainRatio = score.sustainedFrames / Math.max(1, score.vocalFrames);
+  const variationSemitones = robustPitchRange(score.pitchBins);
+
+  const points =
+    23 * clamp01(activeShare / 0.82) +
+    22 * clamp01((avgClarity - 0.67) / 0.30) +
+    26 * clamp01(smoothness) +
+    12 * clamp01(sustainRatio / 0.65) +
+    17 * clamp01((variationSemitones - 1.5) / 7);
+
+  // Um único grito ou poucos segundos de voz não podem render 90 pontos.
+  const sampleCap = score.vocalFrames < 10 ? 55
+    : score.vocalFrames < 25 ? 72
+    : score.vocalFrames < 45 ? 84
+    : 100;
+  return Math.round(Math.min(sampleCap, 100, Math.max(0, points)));
+}
+
 export function extractYouTubeId(input) {
   const raw = String(input || '').trim();
   if (/^[\w-]{11}$/.test(raw)) return raw;
