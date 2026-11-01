@@ -320,3 +320,35 @@ button:focus-visible,a:focus-visible {outline:2px solid #68e9df;outline-offset:3
   .cheer-pop,.confetti-piece{animation:none!important;}
   .song-card,.meter-fill,.btn{transition:none!important;}
 }
+
+
+/* Cartões de gêneros — exploração visual, sem imagens pesadas. */
+.quick-search {margin-top:19px;}
+.chips {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;}
+.genre-chip {
+  display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;
+  gap:9px;min-width:0;min-height:88px;padding:12px 14px;text-align:left;
+  border:1px solid #ffffff2c;border-radius:15px;
+  background:linear-gradient(135deg,#553271,#372a5b);
+  color:#fff;box-shadow:inset 0 1px 0 #ffffff18;
+  transition:transform .16s,filter .16s,border-color .16s;
+}
+.genre-chip:nth-child(2){background:linear-gradient(130deg,#6c2d6d,#46325d);}
+.genre-chip:nth-child(3){background:linear-gradient(130deg,#2e6d7a,#2c385c);}
+.genre-chip:nth-child(4){background:linear-gradient(130deg,#724360,#453457);}
+.genre-chip:nth-child(5){background:linear-gradient(130deg,#3a5c98,#30355f);}
+.genre-chip:nth-child(6){background:linear-gradient(130deg,#5e3ca2,#35365d);}
+.genre-chip .genre-icon {display:block;font-size:21px;line-height:1;}
+.genre-chip .genre-name {display:block;font-weight:800;font-size:12px;line-height:1.25;}
+.genre-chip:hover {filter:brightness(1.13);transform:translateY(-2px);border-color:#f5c4ff85;}
+/* QR amplo para leitura fácil do celular em uma TV ou notebook. */
+.qr {width:150px;height:150px;flex:0 0 150px;border-radius:13px;padding:9px;}
+.room-content {align-items:center;}
+@media(max-width:640px){
+  .chips {grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;}
+  .genre-chip {min-height:78px;padding:10px;gap:6px;border-radius:12px;}
+  .genre-chip .genre-icon {font-size:19px;}
+  .genre-chip .genre-name {font-size:10px;}
+  .qr {width:128px;height:128px;flex-basis:128px;}
+}
+@media(prefers-reduced-motion:reduce){.genre-chip{transition:none;}}
