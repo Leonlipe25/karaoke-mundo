@@ -16,6 +16,8 @@ test('BoraKê está definido na página e inclui recursos da festa',()=>{
   assert.match(html, /id="heroPhoneBtn"/);
   assert.match(html, /id="phoneMicSelect"/);
   assert.match(html, /id="refreshPhoneMicsBtn"/);
+  assert.match(html, /id="forceUsbMic"/);
+  assert.match(js, /micPermissionGranted/);
   assert.match(js, /deviceId=\{exact:deviceId\}/);
   assert.match(js, /scheduleAutoAdvance/);
   assert.match(js, /Reconectando sem perder o vínculo/);
