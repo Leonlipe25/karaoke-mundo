@@ -477,9 +477,11 @@ function consumeMeasurement(m, origin = 'mac') {
   updateLiveScore();
   sendScoreToPhone(false);
 }
-async function startMicAnalysis(onMeasurement, deviceId = '') {
+async function startMicAnalysis(onMeasurement, deviceId = '', usbMode = false) {
   if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microfone exige HTTPS (ou localhost) e navegador compatível.');
-  const audioConstraints={echoCancellation:true,noiseSuppression:true,autoGainControl:false};
+  const audioConstraints=usbMode
+    ? {echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:{ideal:1}}
+    : {echoCancellation:true,noiseSuppression:true,autoGainControl:false};
   if(deviceId)audioConstraints.deviceId={exact:deviceId};
   const stream = await navigator.mediaDevices.getUserMedia({ audio:audioConstraints, video:false });
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -494,7 +496,9 @@ async function startMicAnalysis(onMeasurement, deviceId = '') {
     onMeasurement(m);
   },180);
   const stop=()=>{stopped=true;clearInterval(timer);stream.getTracks().forEach(t=>t.stop());src.disconnect();ctx.close().catch(()=>{});};
-  stop.deviceLabel=stream.getAudioTracks()[0]?.label||'Microfone ativo';
+  const activeTrack=stream.getAudioTracks()[0];
+  stop.deviceLabel=activeTrack?.label||'Microfone ativo';
+  stop.trackSettings=activeTrack?.getSettings?.()||{};
   return stop;
 }
 function roomUrl(code){const url=new URL(window.location.href);url.search='';url.searchParams.set('remote',code);url.hash='';return url.toString();}
@@ -552,7 +556,7 @@ function createRoom(rotate=false) {
 function initPhoneMode(roomCode) {
   $('desktopApp').classList.add('hidden');$('phoneApp').classList.remove('hidden');
   const status=$('phoneStatus');const startBtn=$('startPhoneMicBtn');
-  const micSelect=$('phoneMicSelect');const refreshMicsBtn=$('refreshPhoneMicsBtn');const micHint=$('phoneMicHint');
+  const micSelect=$('phoneMicSelect');const refreshMicsBtn=$('refreshPhoneMicsBtn');const micHint=$('phoneMicHint');const forceUsbMic=$('forceUsbMic');
   const keepAwake=createScreenAwake({
     onStatus:(state)=>{
       const labels={
@@ -575,13 +579,16 @@ function initPhoneMode(roomCode) {
   if(!isValidRoomCode(roomCode)){status.textContent='Código antigo ou inválido. Escaneie o QR novo uma única vez para vincular este navegador.';return;}
   if(typeof window.Peer!=='function') {status.textContent='Biblioteca de conexão não carregou. Verifique a internet e recarregue.';return;}
   const phonePeer=new window.Peer(undefined,{debug:0});
-  let connection=null;let stopFn=null;let micDevicesReady=false;
+  let connection=null;let stopFn=null;let micDevicesReady=false;let micPermissionGranted=false;
   const MIC_DEVICE_KEY='borake-phone-mic-device';
   const externalMicPattern=/usb|wireless|lapel|lavalier|headset|receiver|receptor|externo|external/i;
   async function refreshPhoneMics(requestPermission=false) {
     let probe=null;
     try {
-      if(requestPermission)probe=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+      if(requestPermission){
+        probe=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+        micPermissionGranted=true;
+      }
       const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='audioinput');
       const saved=localStorage.getItem(MIC_DEVICE_KEY)||'';
       const previous=micSelect.value||saved;
@@ -762,7 +769,7 @@ function initPhoneMode(roomCode) {
     // Assim Safari e Chrome podem conceder o bloqueio na mesma interação.
     void keepAwake.start();
     try {
-      if(!micDevicesReady)await refreshPhoneMics(true);
+      if(!micPermissionGranted)await refreshPhoneMics(true);
       const selectedDevice=micSelect.value;
       stopFn=await startMicAnalysis(m=>{
         if(connection?.open)connection.send({type:'pitch',hz:m.hz,clarity:m.clarity,rms:m.rms,voice:m.voice});
@@ -770,9 +777,11 @@ function initPhoneMode(roomCode) {
         setText('phoneMeterText',m.voice?'Sua voz está sendo detectada':'Aproxime o celular da boca');
         $('phoneMeterFill').style.width=Math.min(100,Math.round(m.rms*400))+'%';
         $('phoneVoiceIndicator').style.transform=`scale(${1+Math.min(.23,m.rms*.9)})`;
-      },selectedDevice);
+      },selectedDevice,forceUsbMic.checked);
       if(selectedDevice)localStorage.setItem(MIC_DEVICE_KEY,selectedDevice);
-      micHint.textContent='Ativo: '+(stopFn.deviceLabel||micSelect.selectedOptions[0]?.textContent||'microfone');
+      const activeName=stopFn.deviceLabel||micSelect.selectedOptions[0]?.textContent||'microfone';
+      const activeId=String(stopFn.trackSettings?.deviceId||'').slice(0,8);
+      micHint.textContent='Entrada realmente aberta: '+activeName+(activeId?' · ID '+activeId:'')+(forceUsbMic.checked?' · modo USB':'');
       micSelect.disabled=true;refreshMicsBtn.disabled=true;
       if(connection?.open)connection.send({type:'mic-status',active:true});
       startBtn.textContent='Pausar microfone';
