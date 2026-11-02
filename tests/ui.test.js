@@ -14,6 +14,11 @@ test('BoraKê está definido na página e inclui recursos da festa',()=>{
   assert.match(html, /id="fullscreenBtn"/);
   assert.match(html, /id="confettiLayer"/);
   assert.match(html, /id="heroPhoneBtn"/);
+  assert.match(html, /id="phoneMicSelect"/);
+  assert.match(html, /id="refreshPhoneMicsBtn"/);
+  assert.match(js, /deviceId=\{exact:deviceId\}/);
+  assert.match(js, /scheduleAutoAdvance/);
+  assert.match(js, /Reconectando sem perder o vínculo/);
   assert.match(css, /\.stage-mode \.side-column/);
   assert.match(css, /\.genre-chip/);
 });
