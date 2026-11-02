@@ -557,6 +557,7 @@ function initPhoneMode(roomCode) {
   $('desktopApp').classList.add('hidden');$('phoneApp').classList.remove('hidden');
   const status=$('phoneStatus');const startBtn=$('startPhoneMicBtn');
   const micSelect=$('phoneMicSelect');const refreshMicsBtn=$('refreshPhoneMicsBtn');const micHint=$('phoneMicHint');const forceUsbMic=$('forceUsbMic');
+  const calibrateMicBtn=$('calibratePhoneMicBtn');const calibrationStatus=$('phoneCalibrationStatus');
   const keepAwake=createScreenAwake({
     onStatus:(state)=>{
       const labels={
@@ -580,6 +581,7 @@ function initPhoneMode(roomCode) {
   if(typeof window.Peer!=='function') {status.textContent='Biblioteca de conexão não carregou. Verifique a internet e recarregue.';return;}
   const phonePeer=new window.Peer(undefined,{debug:0});
   let connection=null;let stopFn=null;let micDevicesReady=false;let micPermissionGranted=false;
+  let calibrationSamples=null;let calibrationTimer=null;let voiceRmsThreshold=0.018;
   const MIC_DEVICE_KEY='borake-phone-mic-device';
   const externalMicPattern=/usb|wireless|lapel|lavalier|headset|receiver|receptor|externo|external/i;
   async function refreshPhoneMics(requestPermission=false) {
@@ -619,6 +621,30 @@ function initPhoneMode(roomCode) {
       probe?.getTracks().forEach(track=>track.stop());
     }
   }
+  function cancelCalibration(message='Calibração cancelada.') {
+    clearTimeout(calibrationTimer);calibrationTimer=null;calibrationSamples=null;
+    calibrateMicBtn.disabled=!stopFn;
+    if(message)calibrationStatus.textContent=message;
+  }
+  function finishCalibration() {
+    clearTimeout(calibrationTimer);calibrationTimer=null;
+    const samples=calibrationSamples||[];calibrationSamples=null;
+    if(samples.length<8){cancelCalibration('Não houve amostras suficientes. Tente novamente.');return;}
+    const sorted=samples.filter(Number.isFinite).sort((a,b)=>a-b);
+    const noiseFloor=sorted[Math.floor((sorted.length-1)*0.75)]||0;
+    voiceRmsThreshold=Math.min(0.10,Math.max(0.018,noiseFloor*1.9+0.006));
+    calibrateMicBtn.disabled=false;
+    const noiseLabel=noiseFloor<0.012?'baixo':noiseFloor<0.03?'moderado':'alto';
+    calibrationStatus.textContent='✓ Calibrado · ruído '+noiseLabel+' ('+noiseFloor.toFixed(3)+') · voz mínima '+voiceRmsThreshold.toFixed(3);
+  }
+  calibrateMicBtn.addEventListener('click',()=>{
+    if(!stopFn){calibrationStatus.textContent='Ative o microfone antes de calibrar.';return;}
+    cancelCalibration('');
+    calibrationSamples=[];
+    calibrateMicBtn.disabled=true;
+    calibrationStatus.textContent='Calibrando por 3 segundos… pause a música e fique em silêncio.';
+    calibrationTimer=setTimeout(finishCalibration,3000);
+  });
   refreshMicsBtn.addEventListener('click',async()=>{
     refreshMicsBtn.disabled=true;micHint.textContent='Procurando entradas de áudio…';
     try{await refreshPhoneMics(true);}catch(e){micHint.textContent='Não foi possível listar os microfones: '+e.message;}
@@ -763,7 +789,7 @@ function initPhoneMode(roomCode) {
     }
   });
   startBtn.addEventListener('click',async()=>{
-    if(stopFn){stopSpeech();stopFn();stopFn=null;void keepAwake.stop();if(connection?.open)connection.send({type:'mic-status',active:false});startBtn.textContent='Ativar microfone';setText('phoneMeterText','Microfone pausado');micSelect.disabled=false;refreshMicsBtn.disabled=false;return;}
+    if(stopFn){cancelCalibration('Microfone pausado.');stopSpeech();stopFn();stopFn=null;void keepAwake.stop();if(connection?.open)connection.send({type:'mic-status',active:false});startBtn.textContent='Ativar microfone';setText('phoneMeterText','Microfone pausado');micSelect.disabled=false;refreshMicsBtn.disabled=false;calibrateMicBtn.disabled=true;return;}
     startBtn.disabled=true;
     // Inicie a requisição dentro do clique, antes do prompt assíncrono do microfone.
     // Assim Safari e Chrome podem conceder o bloqueio na mesma interação.
@@ -772,24 +798,33 @@ function initPhoneMode(roomCode) {
       if(!micPermissionGranted)await refreshPhoneMics(true);
       const selectedDevice=micSelect.value;
       stopFn=await startMicAnalysis(m=>{
-        if(connection?.open)connection.send({type:'pitch',hz:m.hz,clarity:m.clarity,rms:m.rms,voice:m.voice});
-        setText('phoneNote',m.voice?noteName(m.hz):'--');
-        setText('phoneMeterText',m.voice?'Sua voz está sendo detectada':'Aproxime o celular da boca');
-        $('phoneMeterFill').style.width=Math.min(100,Math.round(m.rms*400))+'%';
-        $('phoneVoiceIndicator').style.transform=`scale(${1+Math.min(.23,m.rms*.9)})`;
+        if(calibrationSamples){
+          calibrationSamples.push(m.rms);
+          setText('phoneNote','CAL');
+          setText('phoneMeterText','Medindo o ruído ambiente…');
+          $('phoneMeterFill').style.width=Math.min(100,Math.round(m.rms*400))+'%';
+          return;
+        }
+        const adjusted={...m,voice:m.voice&&m.rms>=voiceRmsThreshold};
+        if(connection?.open)connection.send({type:'pitch',hz:adjusted.hz,clarity:adjusted.clarity,rms:adjusted.rms,voice:adjusted.voice});
+        setText('phoneNote',adjusted.voice?noteName(adjusted.hz):'--');
+        setText('phoneMeterText',adjusted.voice?'Sua voz está sendo detectada':'Abaixo do limite calibrado');
+        $('phoneMeterFill').style.width=Math.min(100,Math.round(adjusted.rms*400))+'%';
+        $('phoneVoiceIndicator').style.transform=`scale(${1+Math.min(.23,adjusted.rms*.9)})`;
       },selectedDevice,forceUsbMic.checked);
       if(selectedDevice)localStorage.setItem(MIC_DEVICE_KEY,selectedDevice);
       const activeName=stopFn.deviceLabel||micSelect.selectedOptions[0]?.textContent||'microfone';
       const activeId=String(stopFn.trackSettings?.deviceId||'').slice(0,8);
       micHint.textContent='Entrada realmente aberta: '+activeName+(activeId?' · ID '+activeId:'')+(forceUsbMic.checked?' · modo USB':'');
-      micSelect.disabled=true;refreshMicsBtn.disabled=true;
+      micSelect.disabled=true;refreshMicsBtn.disabled=true;calibrateMicBtn.disabled=false;
+      calibrationStatus.textContent='Toque em “Calibrar ruído” com a música pausada.';
       if(connection?.open)connection.send({type:'mic-status',active:true});
       startBtn.textContent='Pausar microfone';
       refreshSpeechButton();
     } catch(e){void keepAwake.stop();status.classList.remove('good');status.textContent='Não foi possível abrir o microfone: '+e.message;}
     finally {startBtn.disabled=false;refreshSpeechButton();}
   });
-  window.addEventListener('pagehide',()=>{pageClosed=true;stopSpeech();clearTimeout(reconnectTimer);if(stopFn)stopFn();stopFn=null;void keepAwake.stop();document.removeEventListener('visibilitychange',handleVisibility);phonePeer.destroy();});
+  window.addEventListener('pagehide',()=>{pageClosed=true;cancelCalibration('');stopSpeech();clearTimeout(reconnectTimer);if(stopFn)stopFn();stopFn=null;void keepAwake.stop();document.removeEventListener('visibilitychange',handleVisibility);phonePeer.destroy();});
 }
 function initDesktop() {
   // Chaves legadas do YouTube não precisam ficar salvas no navegador.
