@@ -461,3 +461,13 @@ button:focus-visible,a:focus-visible {outline:2px solid #68e9df;outline-offset:3
 .phone-lyrics button{white-space:normal;}
 .phone-lyrics p{font-size:11px;color:#dbbfee;line-height:1.55;margin:12px 0 0;}
 @media(max-width:640px){.lyrics-fields{grid-template-columns:1fr;}.lyrics-fields label{margin-top:3px;}}
+
+
+/* Seleção explícita do microfone no celular */
+.phone-mic-picker{margin:14px 0;padding:12px;border:1px solid rgba(255,255,255,.14);border-radius:14px;background:rgba(15,10,35,.42)}
+.phone-mic-picker>label{display:block;margin-bottom:8px;font-weight:700}
+.phone-mic-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.phone-mic-row select{min-width:0;width:100%;padding:11px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:#17102e;color:#fff}
+.phone-mic-row .btn{padding:10px 12px}
+.phone-mic-picker p{margin:8px 0 0;font-size:.82rem;color:var(--muted)}
+@media(max-width:430px){.phone-mic-row{grid-template-columns:1fr}.phone-mic-row .btn{width:100%}}
